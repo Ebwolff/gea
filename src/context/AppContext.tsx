@@ -174,7 +174,6 @@ interface AppContextType {
   setFarmFilter: (f: string) => void;
 
   farms: Property[];
-  setFarms: React.Dispatch<React.SetStateAction<Property[]>>;
   diagnosisQuestions: DiagnosisQuestion[];
   updateQuestionScore: (id: number, score: number) => void;
 
@@ -190,40 +189,34 @@ interface AppContextType {
   };
 
   financialTransactions: FinancialTransaction[];
-  setFinancialTransactions: React.Dispatch<React.SetStateAction<FinancialTransaction[]>>;
   addTransaction: (t: Omit<FinancialTransaction, 'uuid'>) => void;
   removeTransaction: (uuid: string) => void;
 
   assets: Asset[];
-  setAssets: React.Dispatch<React.SetStateAction<Asset[]>>;
   addAsset: (a: Omit<Asset, 'uuid' | 'currentValue'>) => void;
   updateAsset: (uuid: string, data: Partial<Asset>) => void;
   removeAsset: (uuid: string) => void;
 
   fields: CropField[];
-  setFields: React.Dispatch<React.SetStateAction<CropField[]>>;
   addField: (f: Omit<CropField, 'uuid'>) => void;
   updateField: (uuid: string, data: Partial<CropField>) => void;
   removeField: (uuid: string) => void;
 
   machines: Machine[];
-  setMachines: React.Dispatch<React.SetStateAction<Machine[]>>;
   addMachine: (m: Omit<Machine, 'uuid' | 'hoursWorked' | 'fuelConsumed' | 'maintenanceCost' | 'availability' | 'costPerHour'>) => void;
   updateMachine: (uuid: string, data: Partial<Machine>) => void;
   removeMachine: (uuid: string) => void;
 
   stock: StockItem[];
-  setStock: React.Dispatch<React.SetStateAction<StockItem[]>>;
   addStockItem: (s: Omit<StockItem, 'uuid'>) => void;
   updateStockItem: (uuid: string, data: Partial<StockItem>) => void;
   removeStockItem: (uuid: string) => void;
 
   purchases: PurchaseRequest[];
-  setPurchases: React.Dispatch<React.SetStateAction<PurchaseRequest[]>>;
   addPurchaseRequest: (p: Omit<PurchaseRequest, 'uuid' | 'status' | 'date'>) => void;
+  updatePurchaseStatus: (uuid: string, status: PurchaseRequest['status']) => void;
 
   employees: Employee[];
-  setEmployees: React.Dispatch<React.SetStateAction<Employee[]>>;
   addEmployee: (e: Omit<Employee, 'uuid'>) => void;
   updateEmployee: (uuid: string, data: Partial<Employee>) => void;
   removeEmployee: (uuid: string) => void;
@@ -234,7 +227,6 @@ interface AppContextType {
 
   indicators: Indicator[];
   actionPlans: ActionPlanItem[];
-  setActionPlans: React.Dispatch<React.SetStateAction<ActionPlanItem[]>>;
   addManualActionPlan: (p: Omit<ActionPlanItem, 'uuid'>) => void;
   updateActionPlanStatus: (uuid: string, status: ActionPlanItem['status']) => void;
   chatMessages: ChatMessage[];
@@ -791,6 +783,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const updatePurchaseStatus = (uuid: string, status: PurchaseRequest['status']) => {
+    setPurchases(prev => prev.map(p => p.uuid === uuid ? { ...p, status } : p));
+    supabase.from('purchase_requests').update({ status }).eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao atualizar status do pedido de compra:', error);
+    });
+  };
+
   const addEmployee = (e: Omit<Employee, 'uuid'>) => {
     const row = { name: e.name, role: e.role, dept: e.dept, training: e.training, performance: e.performance, status: e.status };
     supabase.from('employees').insert(row).select().single().then(({ data, error }) => {
@@ -1114,27 +1113,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       activeTab, setActiveTab,
       cropFilter, setCropFilter,
       farmFilter, setFarmFilter,
-      farms, setFarms,
+      farms,
       addFarm, updateFarm, removeFarm,
       diagnosisQuestions,
       updateQuestionScore,
       indices,
-      financialTransactions, setFinancialTransactions,
+      financialTransactions,
       addTransaction, removeTransaction,
-      assets, setAssets,
+      assets,
       addAsset, updateAsset, removeAsset,
-      fields, setFields,
+      fields,
       addField, updateField, removeField,
-      machines, setMachines,
+      machines,
       addMachine, updateMachine, removeMachine,
-      stock, setStock,
+      stock,
       addStockItem, updateStockItem, removeStockItem,
-      purchases, setPurchases,
+      purchases,
       addPurchaseRequest,
-      employees, setEmployees,
+      updatePurchaseStatus,
+      employees,
       addEmployee, updateEmployee, removeEmployee,
       indicators,
-      actionPlans, setActionPlans,
+      actionPlans,
       addManualActionPlan,
       updateActionPlanStatus,
       chatMessages,

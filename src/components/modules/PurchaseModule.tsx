@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { ShoppingBag, Check, X } from 'lucide-react';
 
 export const PurchaseModule: React.FC = () => {
-  const { purchases, setPurchases, addPurchaseRequest } = useApp();
+  const { purchases, addPurchaseRequest, updatePurchaseStatus } = useApp();
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [item, setItem] = useState('');
@@ -35,11 +35,11 @@ export const PurchaseModule: React.FC = () => {
   };
 
   const handleApprove = (uuid: string) => {
-    setPurchases(prev => prev.map(p => p.uuid === uuid ? { ...p, status: 'aprovado' } : p));
+    updatePurchaseStatus(uuid, 'aprovado');
   };
 
   const handleReject = (uuid: string) => {
-    setPurchases(prev => prev.map(p => p.uuid === uuid ? { ...p, status: 'rejeitado' } : p));
+    updatePurchaseStatus(uuid, 'rejeitado');
   };
 
   return (

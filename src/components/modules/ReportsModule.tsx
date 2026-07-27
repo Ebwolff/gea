@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
+import { ROLE_LABELS } from '../../lib/roles';
 import { Printer, Download, Sparkles, FileText } from 'lucide-react';
 
 export const ReportsModule: React.FC = () => {
   const { indices, financialTransactions, farmFilter } = useApp();
+  const { profile } = useAuth();
   const [selectedReport, setSelectedReport] = useState<'executivo' | 'financeiro' | 'diagnostico'>('executivo');
+  const today = new Date().toLocaleDateString('pt-BR');
+  const responsibleName = profile?.fullName ?? '-';
+  const responsibleRole = profile ? ROLE_LABELS[profile.role] : '';
 
   const handlePrint = () => {
     window.print();
@@ -102,8 +108,8 @@ export const ReportsModule: React.FC = () => {
             </div>
             <div className="text-right text-3xs text-slate-400">
               <div>Fazenda Ativa: **{farmFilter}**</div>
-              <div>Data de Emissão: 15/07/2026</div>
-              <div>Consultor Responsável: Dr. Marcelo Silva</div>
+              <div>Data de Emissão: {today}</div>
+              <div>Responsável: {responsibleName}{responsibleRole ? ` (${responsibleRole})` : ''}</div>
             </div>
           </div>
 
@@ -196,8 +202,8 @@ export const ReportsModule: React.FC = () => {
           {/* Rodapé de Assinatura */}
           <div className="pt-12 mt-12 border-t border-slate-100 dark:border-slate-800 flex justify-between text-3xs text-slate-400">
             <div className="text-center w-48 border-t border-slate-300 dark:border-slate-700 pt-1">
-              Dr. Marcelo Silva
-              <div className="font-semibold text-4xs">Consultor de Gestão Rural</div>
+              {responsibleName}
+              <div className="font-semibold text-4xs">{responsibleRole}</div>
             </div>
             <div className="text-center w-48 border-t border-slate-300 dark:border-slate-700 pt-1">
               Diretoria Operacional
