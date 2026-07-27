@@ -27,48 +27,60 @@ import {
   Radar 
 } from 'recharts';
 
+const MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
 export const DashboardModule: React.FC = () => {
-  const { indices, financialTransactions, actionPlans, farmFilter, farms } = useApp();
+  const { indices, financialTransactions, actionPlans, farmFilter, farms, assets, fields } = useApp();
 
   // Filtragem dos dados de exibição conforme fazenda/safra selecionada
   const isAllFarms = farmFilter === 'Todas';
-  
+  const filteredTransactions = financialTransactions.filter(t => isAllFarms || t.farm === farmFilter);
+
   // Totais financeiros (calculados com base nas transações)
-  const despesas = financialTransactions
-    .filter(t => (isAllFarms || t.farm === farmFilter) && t.type === 'despesa')
+  const despesas = filteredTransactions
+    .filter(t => t.type === 'despesa')
     .reduce((acc, t) => acc + t.value, 0);
 
-  const receitas = financialTransactions
-    .filter(t => (isAllFarms || t.farm === farmFilter) && t.type === 'receita')
+  const receitas = filteredTransactions
+    .filter(t => t.type === 'receita')
     .reduce((acc, t) => acc + t.value, 0);
 
   const lucroLiquido = receitas - despesas;
   const ebitda = receitas - (despesas * 0.85); // EBITDA fictício baseado nas despesas operacionais
-  const patrimonioLiquido = isAllFarms ? 28315000 : 18500000;
-  
+
+  // Valoração patrimonial = soma do valor atual dos ativos cadastrados
+  // (não desconta passivos/dívidas, que ainda não são rastreados no sistema).
+  const patrimonioLiquido = assets.reduce((sum, a) => sum + a.currentValue, 0);
+
   const areaTotal = isAllFarms
     ? farms.reduce((sum, f) => sum + f.areaTotal, 0)
     : (farms.find(f => f.name === farmFilter)?.areaTotal ?? 0);
   const receitaPorHa = areaTotal > 0 ? receitas / areaTotal : 0;
   const lucroPorHa = areaTotal > 0 ? lucroLiquido / areaTotal : 0;
 
-  // Gráficos de Fluxo de Caixa Mensal (fictício para o ano)
-  const cashFlowData = [
-    { name: 'Jan', Entradas: 450000, Saídas: 380000 },
-    { name: 'Fev', Entradas: 320000, Saídas: 410000 },
-    { name: 'Mar', Entradas: 890000, Saídas: 520000 },
-    { name: 'Abr', Entradas: 1200000, Saídas: 680000 },
-    { name: 'Mai', Entradas: 670000, Saídas: 490000 },
-    { name: 'Jun', Entradas: 540000, Saídas: 430000 },
-    { name: 'Jul', Entradas: receitas, Saídas: despesas }
-  ];
+  // Fluxo de Caixa Mensal: agrupa as transações reais pelo mês/ano de cada lançamento.
+  const cashFlowByMonth = new Map<string, { name: string; Entradas: number; Saídas: number; sortKey: string }>();
+  filteredTransactions.forEach(t => {
+    const d = new Date(t.date + 'T00:00:00');
+    const sortKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = `${MESES_PT[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`;
+    const entry = cashFlowByMonth.get(sortKey) ?? { name: label, Entradas: 0, Saídas: 0, sortKey };
+    if (t.type === 'receita') entry.Entradas += t.value; else entry.Saídas += t.value;
+    cashFlowByMonth.set(sortKey, entry);
+  });
+  const cashFlowData = Array.from(cashFlowByMonth.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 
-  // Gráficos de Rentabilidade por Cultura
-  const cropPerformanceData = [
-    { name: 'Soja', Receita: 9855 * 760, Custo: 3875 * 760, Lucro: 5980 * 760 },
-    { name: 'Milho', Receita: 8850 * 310, Custo: 4200 * 310, Lucro: 4650 * 310 },
-    { name: 'Algodão', Receita: 16500 * 180, Custo: 7500 * 180, Lucro: 9000 * 180 }
-  ];
+  // Rentabilidade por Cultura: agrupa os talhões reais (fields) por cultura.
+  const cropTotals = new Map<string, { Receita: number; Custo: number }>();
+  fields.forEach(f => {
+    const entry = cropTotals.get(f.culture) ?? { Receita: 0, Custo: 0 };
+    entry.Receita += f.revenueHa * f.area;
+    entry.Custo += f.productionCostHa * f.area;
+    cropTotals.set(f.culture, entry);
+  });
+  const cropPerformanceData = Array.from(cropTotals.entries()).map(([name, v]) => ({
+    name, Receita: v.Receita, Custo: v.Custo, Lucro: v.Receita - v.Custo
+  }));
 
   // Dados do radar de diagnóstico
   const radarData = [

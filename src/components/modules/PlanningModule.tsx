@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
+import { useApp } from '../../context/AppContext';
 import { Target, TrendingUp, Sliders } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts';
 
 export const PlanningModule: React.FC = () => {
+  const { financialTransactions, farmFilter } = useApp();
   const [costMultiplier, setCostMultiplier] = useState(1); // 1 = 100%
   const [yieldMultiplier, setYieldMultiplier] = useState(1);
 
-  // Projeção baseada nos multiplicadores
-  // Receita base: R$ 1.280.000
-  // Custo base: R$ 565.300
-  const baseRevenue = 1280000;
-  const baseCost = 565300;
+  // Projeção baseada nos multiplicadores, a partir da receita/custo real
+  // acumulados nas transações financeiras (filtradas pela fazenda ativa).
+  const relevantTransactions = financialTransactions.filter(t => farmFilter === 'Todas' || t.farm === farmFilter);
+  const baseRevenue = relevantTransactions.filter(t => t.type === 'receita').reduce((sum, t) => sum + t.value, 0);
+  const baseCost = relevantTransactions.filter(t => t.type === 'despesa').reduce((sum, t) => sum + t.value, 0);
 
   const simulatedRevenue = baseRevenue * yieldMultiplier;
   const simulatedCost = baseCost * costMultiplier;

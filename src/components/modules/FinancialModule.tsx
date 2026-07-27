@@ -13,7 +13,7 @@ import {
 import { useToast } from '../Toast';
 
 export const FinancialModule: React.FC = () => {
-  const { financialTransactions, addTransaction, removeTransaction, farmFilter, farms } = useApp();
+  const { financialTransactions, addTransaction, removeTransaction, farmFilter, farms, assets, stock } = useApp();
   const { showToast } = useToast();
   const [activeSubTab, setActiveSubTab] = useState<'cashflow' | 'dre' | 'balance'>('cashflow');
   
@@ -61,20 +61,21 @@ export const FinancialModule: React.FC = () => {
     setShowAddForm(false);
   };
 
-  // Itens fixados para o DRE Simplificado
-  // Receita Bruta = receitas
-  // Custos Variáveis (Insumos, sementes) = 48% das despesas
-  // Margem de Contribuição = Receita - Custos Variáveis
-  // Despesas Operacionais (mão de obra, combustíveis, manutenção) = 37% das despesas
-  // EBITDA = Margem Contribuição - Despesas Operacionais
-  // Depreciação (simulada) = R$ 35.000
-  // Resultado Líquido = EBITDA - Depreciação - Outras despesas financeiras (15% das despesas)
-  const custoVariavel = despesas * 0.48;
+  // DRE a partir da categorização real das transações (não mais percentuais fixos):
+  // - Custo Variável: categorias de Insumos, Combustível e Frete (ligadas diretamente à produção)
+  // - Despesa Financeira: categorias de Financiamento/Empréstimo/Juros
+  // - Despesa Operacional: o restante das despesas (mão de obra, manutenção, arrendamento, seguros, outros)
+  // - Depreciação: soma anual (valor inicial × taxa de depreciação) dos ativos cadastrados
+  const isVariableCategory = (cat: string) => /insumo|combust|frete/i.test(cat);
+  const isFinancialCategory = (cat: string) => /financiamento|empr[ée]stimo|juros/i.test(cat);
+
+  const despesaTransactions = transactions.filter(t => t.type === 'despesa');
+  const custoVariavel = despesaTransactions.filter(t => isVariableCategory(t.category)).reduce((s, t) => s + t.value, 0);
+  const despesaFinanceira = despesaTransactions.filter(t => isFinancialCategory(t.category)).reduce((s, t) => s + t.value, 0);
+  const despesasOper = despesas - custoVariavel - despesaFinanceira;
   const margemContr = receitas - custoVariavel;
-  const despesasOper = despesas * 0.37;
   const ebitda = margemContr - despesasOper;
-  const depreciacao = 35000;
-  const despesaFinanceira = despesas * 0.15;
+  const depreciacao = assets.reduce((sum, a) => sum + (a.initialValue * a.depreciationRate / 100), 0);
   const lucroAntesImpostos = ebitda - depreciacao - despesaFinanceira;
   const irpj = lucroAntesImpostos > 0 ? lucroAntesImpostos * 0.08 : 0; // Alíquota rural simplificada
   const lucroLiquido = lucroAntesImpostos - irpj;
@@ -84,6 +85,32 @@ export const FinancialModule: React.FC = () => {
     if (receitas === 0) return '0%';
     return `${Math.round((val / receitas) * 100)}%`;
   };
+
+  // Balanço Patrimonial — calculado só com o que o sistema realmente rastreia:
+  // caixa acumulado (transações já pagas), estoque, contas a receber/pagar
+  // pendentes e o valor atual dos ativos por categoria. Não existe um livro-razão
+  // separado de capital social, dívidas de financiamento ou lucros acumulados —
+  // por isso o Patrimônio Líquido aqui é o resíduo contábil (Ativo - Passivo),
+  // não uma soma de contas próprias.
+  const disponibilidades = transactions.filter(t => t.status === 'pago').reduce((s, t) => s + (t.type === 'receita' ? t.value : -t.value), 0);
+  const estoqueInsumos = stock.reduce((s, i) => s + i.value, 0);
+  const creditosReceber = transactions.filter(t => t.type === 'receita' && t.status === 'pendente').reduce((s, t) => s + t.value, 0);
+  const ativoCirculante = disponibilidades + estoqueInsumos + creditosReceber;
+
+  const assetsByCategory = (cats: string[]) => assets.filter(a => cats.includes(a.category)).reduce((s, a) => s + a.currentValue, 0);
+  const terrasValor = assetsByCategory(['Terras']);
+  const frotaValor = assetsByCategory(['Máquinas', 'Implementos', 'Veículos', 'Equipamentos']);
+  const benfeitoriasValor = assetsByCategory(['Benfeitorias']);
+  const semoventesValor = assetsByCategory(['Animais']);
+  const ativoNaoCirculante = terrasValor + frotaValor + benfeitoriasValor + semoventesValor;
+  const totalAtivo = ativoCirculante + ativoNaoCirculante;
+
+  const passivoCirculante = despesaTransactions.filter(t => t.status === 'pendente' && !isFinancialCategory(t.category)).reduce((s, t) => s + t.value, 0);
+  const passivoNaoCirculante = despesaTransactions.filter(t => t.status === 'pendente' && isFinancialCategory(t.category)).reduce((s, t) => s + t.value, 0);
+  const totalPassivo = passivoCirculante + passivoNaoCirculante;
+  const patrimonioLiquidoCalc = totalAtivo - totalPassivo;
+
+  const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div className="space-y-6 animate-fade-in p-1">
@@ -421,48 +448,48 @@ export const FinancialModule: React.FC = () => {
               <div className="space-y-1">
                 <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-200">
                   <span>Ativo Circulante</span>
-                  <span>R$ 1.845.000,00</span>
+                  <span>R$ {fmt(ativoCirculante)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Disponibilidades (Bancos)</span>
-                  <span>R$ 485.000,00</span>
+                  <span>Disponibilidades (saldo de caixa acumulado)</span>
+                  <span>R$ {fmt(disponibilidades)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
                   <span>Estoque de Insumos</span>
-                  <span>R$ 424.700,00</span>
+                  <span>R$ {fmt(estoqueInsumos)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Créditos a Receber (Vendas)</span>
-                  <span>R$ 935.300,00</span>
+                  <span>Créditos a Receber (Vendas Pendentes)</span>
+                  <span>R$ {fmt(creditosReceber)}</span>
                 </div>
               </div>
 
               <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-200">
                   <span>Ativo Não Circulante (Imobilizado)</span>
-                  <span>R$ 28.471.000,00</span>
+                  <span>R$ {fmt(ativoNaoCirculante)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
                   <span>Terras de Produção</span>
-                  <span>R$ 24.000.000,00</span>
+                  <span>R$ {fmt(terrasValor)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Frota e Máquinas Agrícolas</span>
-                  <span>R$ 2.874.000,00</span>
+                  <span>Frota, Máquinas e Implementos</span>
+                  <span>R$ {fmt(frotaValor)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
                   <span>Benfeitorias e Instalações</span>
-                  <span>R$ 1.224.000,00</span>
+                  <span>R$ {fmt(benfeitoriasValor)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Semoventes (Nelore Cria)</span>
-                  <span>R$ 373.000,00</span>
+                  <span>Semoventes (Animais)</span>
+                  <span>R$ {fmt(semoventesValor)}</span>
                 </div>
               </div>
 
               <div className="flex justify-between font-extrabold text-sm border-t-2 border-slate-200 dark:border-slate-700 pt-3 text-slate-800 dark:text-white">
                 <span>TOTAL DO ATIVO</span>
-                <span>R$ 30.316.000,00</span>
+                <span>R$ {fmt(totalAtivo)}</span>
               </div>
             </div>
           </div>
@@ -476,55 +503,39 @@ export const FinancialModule: React.FC = () => {
               <div className="space-y-1">
                 <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-200">
                   <span>Passivo Circulante</span>
-                  <span>R$ 380.000,00</span>
+                  <span>R$ {fmt(passivoCirculante)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Fornecedores a Pagar</span>
-                  <span>R$ 215.000,00</span>
-                </div>
-                <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Salários e Encargos Sociais</span>
-                  <span>R$ 120.000,00</span>
-                </div>
-                <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Outros Passivos Curto Prazo</span>
-                  <span>R$ 45.000,00</span>
+                  <span>Despesas Pendentes de Pagamento</span>
+                  <span>R$ {fmt(passivoCirculante)}</span>
                 </div>
               </div>
 
               <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-200">
                   <span>Passivo Não Circulante</span>
-                  <span>R$ 1.621.000,00</span>
+                  <span>R$ {fmt(passivoNaoCirculante)}</span>
                 </div>
                 <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Financiamentos BNDES</span>
-                  <span>R$ 1.200.000,00</span>
-                </div>
-                <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Crédito Rural e Custeio</span>
-                  <span>R$ 421.000,00</span>
+                  <span>Financiamentos / Empréstimos Pendentes</span>
+                  <span>R$ {fmt(passivoNaoCirculante)}</span>
                 </div>
               </div>
 
               <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center justify-between font-bold text-slate-700 dark:text-slate-200">
-                  <span>Patrimônio Líquido</span>
-                  <span>R$ 28.315.000,00</span>
+                  <span>Patrimônio Líquido (Ativo − Passivo)</span>
+                  <span>R$ {fmt(patrimonioLiquidoCalc)}</span>
                 </div>
-                <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Capital Social Integralizado</span>
-                  <span>R$ 27.035.000,00</span>
-                </div>
-                <div className="flex justify-between pl-4 text-slate-500">
-                  <span>Lucros Acumulados</span>
-                  <span>R$ 1.280.000,00</span>
-                </div>
+                <p className="text-4xs text-slate-400 pl-1 leading-relaxed">
+                  Calculado por diferença contábil. O sistema ainda não separa capital social e lucros
+                  acumulados como contas próprias.
+                </p>
               </div>
 
               <div className="flex justify-between font-extrabold text-sm border-t-2 border-slate-200 dark:border-slate-700 pt-3 text-slate-800 dark:text-white">
                 <span>TOTAL DO PASSIVO E PL</span>
-                <span>R$ 30.316.000,00</span>
+                <span>R$ {fmt(totalPassivo + patrimonioLiquidoCalc)}</span>
               </div>
             </div>
           </div>

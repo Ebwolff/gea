@@ -987,31 +987,108 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ebitdaVal = totalReceitas - (totalDespesas * 0.85); // EBITDA aproximado
     const margemVal = totalReceitas > 0 ? Math.round(((totalReceitas - totalDespesas) / totalReceitas) * 100) : 0;
 
-    const inds: Indicator[] = [
-      // Financeiros (15)
-      { uuid: 'i1', name: 'Liquidez Corrente', category: 'Financeiro', value: 1.85, target: 1.5, unit: 'x', status: 'excelente' },
-      { uuid: 'i2', name: 'Capital de Giro Líquido', category: 'Financeiro', value: 450000, target: 400000, unit: 'R$', status: 'bom' },
-      { uuid: 'i3', name: 'EBITDA Anualizado', category: 'Financeiro', value: ebitdaVal, target: 500000, unit: 'R$', status: ebitdaVal > 400000 ? 'excelente' : 'alerta' },
-      { uuid: 'i4', name: 'ROI (Retorno s/ Investimento)', category: 'Financeiro', value: 18.4, target: 15.0, unit: '%', status: 'excelente' },
-      { uuid: 'i5', name: 'ROE (Retorno s/ Patrimônio)', category: 'Financeiro', value: 12.2, target: 10.0, unit: '%', status: 'bom' },
-      { uuid: 'i6', name: 'ROA (Retorno s/ Ativo)', category: 'Financeiro', value: 8.6, target: 7.0, unit: '%', status: 'bom' },
-      { uuid: 'i7', name: 'Margem Líquida', category: 'Financeiro', value: margemVal, target: 25, unit: '%', status: margemVal > 25 ? 'bom' : 'alerta' },
-      { uuid: 'i8', name: 'Grau de Endividamento', category: 'Financeiro', value: 38, target: 45, unit: '%', status: 'excelente' },
-      { uuid: 'i9', name: 'Giro de Caixa', category: 'Financeiro', value: 42, target: 30, unit: 'Dias', status: 'bom' },
-      { uuid: 'i10', name: 'Margem Bruta', category: 'Financeiro', value: 46, target: 40, unit: '%', status: 'excelente' },
-      { uuid: 'i11', name: 'Cobertura de Juros', category: 'Financeiro', value: 3.4, target: 2.5, unit: 'x', status: 'bom' },
-      { uuid: 'i12', name: 'Margem de EBITDA', category: 'Financeiro', value: 34, target: 30, unit: '%', status: 'excelente' },
-      { uuid: 'i13', name: 'Ponto de Equilíbrio Geral', category: 'Financeiro', value: 680000, target: 750000, unit: 'R$', status: 'bom' },
-      { uuid: 'i14', name: 'Custos Fixos / Receita', category: 'Financeiro', value: 18, target: 20, unit: '%', status: 'excelente' },
-      { uuid: 'i15', name: 'Custos Variáveis / Receita', category: 'Financeiro', value: 48, target: 50, unit: '%', status: 'bom' },
+    // status() classifica o valor real contra a meta. Para a maioria dos
+    // indicadores "maior é melhor"; os poucos onde "menor é melhor" (custos,
+    // prazos) usam lowerIsBetter = true.
+    const status = (value: number, target: number, lowerIsBetter = false): Indicator['status'] => {
+      if (target === 0) return value === 0 ? 'excelente' : 'alerta';
+      const ratio = lowerIsBetter ? target / Math.max(value, 0.0001) : value / target;
+      if (ratio >= 1.1) return 'excelente';
+      if (ratio >= 1) return 'bom';
+      if (ratio >= 0.85) return 'alerta';
+      return 'critico';
+    };
+    const avgOf = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
 
-      // Produção (15)
-      { uuid: 'i16', name: 'Produtividade Média Soja', category: 'Produção', value: 72.8, target: 68.0, unit: 'scs/ha', status: 'excelente' },
-      { uuid: 'i17', name: 'Produtividade Média Milho', category: 'Produção', value: 118, target: 110, unit: 'scs/ha', status: 'excelente' },
-      { uuid: 'i18', name: 'Custo de Produção Soja', category: 'Produção', value: 3875, target: 4000, unit: 'R$/ha', status: 'excelente' },
-      { uuid: 'i19', name: 'Custo de Produção Milho', category: 'Produção', value: 4200, target: 4100, unit: 'R$/ha', status: 'alerta' },
-      { uuid: 'i20', name: 'Lucro Líquido por Hectare Soja', category: 'Produção', value: 5980, target: 5500, unit: 'R$/ha', status: 'excelente' },
-      { uuid: 'i21', name: 'Lucro Líquido por Hectare Milho', category: 'Produção', value: 4650, target: 4000, unit: 'R$/ha', status: 'excelente' },
+    // --- Agregações reais a partir de assets / fields / machines / stock / purchases / employees ---
+    const ativoTotal = assets.reduce((sum, a) => sum + a.currentValue, 0);
+    const estoqueTotal = stock.reduce((sum, s) => sum + s.value, 0);
+    const receitasPendentes = financialTransactions.filter(t => t.type === 'receita' && t.status === 'pendente').reduce((s, t) => s + t.value, 0);
+    const despesasPendentes = financialTransactions.filter(t => t.type === 'despesa' && t.status === 'pendente').reduce((s, t) => s + t.value, 0);
+    const ativoCirculanteAprox = estoqueTotal + receitasPendentes;
+    const liquidezCorrente = despesasPendentes > 0 ? ativoCirculanteAprox / despesasPendentes : (ativoCirculanteAprox > 0 ? 9.9 : 0);
+    const capitalGiroLiquido = ativoCirculanteAprox - despesasPendentes;
+    const roiVal = ativoTotal > 0 ? ((totalReceitas - totalDespesas) / ativoTotal) * 100 : 0;
+    const dividaFinanceira = financialTransactions
+      .filter(t => t.type === 'despesa' && /financiamento|empr[ée]stimo/i.test(t.category))
+      .reduce((s, t) => s + t.value, 0);
+    const grauEndividamento = ativoTotal > 0 ? (dividaFinanceira / ativoTotal) * 100 : 0;
+
+    const fieldsByCulture = (culture: string) => fields.filter(f => f.culture === culture);
+    const sojaFields = fieldsByCulture('Soja');
+    const milhoFields = fieldsByCulture('Milho');
+    const produtividadeSoja = avgOf(sojaFields.map(f => f.actualYield ?? f.expectedYield));
+    const produtividadeMilho = avgOf(milhoFields.map(f => f.actualYield ?? f.expectedYield));
+    const custoProdSoja = avgOf(sojaFields.map(f => f.productionCostHa));
+    const custoProdMilho = avgOf(milhoFields.map(f => f.productionCostHa));
+    const lucroHaSoja = avgOf(sojaFields.map(f => f.revenueHa - f.productionCostHa));
+    const lucroHaMilho = avgOf(milhoFields.map(f => f.revenueHa - f.productionCostHa));
+
+    const findMachine = (frag: string) => machines.find(m => m.name.toLowerCase().includes(frag.toLowerCase()));
+    const disponibilidadeFrota = avgOf(machines.map(m => m.availability));
+    const jd8370 = findMachine('8370');
+    const case9250 = findMachine('9250');
+    const consumoJd = jd8370 && jd8370.hoursWorked > 0 ? jd8370.fuelConsumed / jd8370.hoursWorked : null;
+    const consumoCase = case9250 && case9250.hoursWorked > 0 ? case9250.fuelConsumed / case9250.hoursWorked : null;
+    const maquinasComHoras = machines.filter(m => m.hoursWorked > 0);
+    const custoManutHora = avgOf(maquinasComHoras.map(m => m.maintenanceCost / m.hoursWorked));
+    const horasTrabalhadasMedia = avgOf(machines.map(m => m.hoursWorked));
+
+    const terraAssets = assets.filter(a => a.category === 'Terras');
+    const maquinasAssets = assets.filter(a => a.category === 'Máquinas');
+    const areaTotalFarms = farms.reduce((s, f) => s + f.areaTotal, 0);
+    const valorTerraNuaHa = areaTotalFarms > 0 ? terraAssets.reduce((s, a) => s + a.currentValue, 0) / areaTotalFarms : 0;
+    const ativoNaoCirculante = ativoTotal - terraAssets.reduce((s, a) => s + a.currentValue, 0);
+    const imobilizacaoCapital = ativoTotal > 0 ? (ativoNaoCirculante / ativoTotal) * 100 : 0;
+    const depreciacaoAnual = assets.reduce((s, a) => s + (a.initialValue * a.depreciationRate / 100), 0);
+    const idadeMediaFrotaAssets = avgOf(maquinasAssets.map(a => new Date().getFullYear() - new Date(a.acquisitionDate).getFullYear()));
+    const valorResidualMaquinas = avgOf(maquinasAssets.filter(a => a.initialValue > 0).map(a => (a.currentValue / a.initialValue) * 100));
+
+    const activeEmployees = employees.filter(e => e.status === 'Ativo');
+    const receitaPorColaborador = activeEmployees.length > 0 ? totalReceitas / activeEmployees.length : 0;
+    const lucroPorColaborador = activeEmployees.length > 0 ? (totalReceitas - totalDespesas) / activeEmployees.length : 0;
+    const horasTreinamentoMedia = avgOf(employees.map(e => parseInt(e.training) || 0));
+
+    const supplierTotals = new Map<string, number>();
+    purchases.forEach(p => supplierTotals.set(p.supplier, (supplierTotals.get(p.supplier) ?? 0) + p.value));
+    const totalCompras = purchases.reduce((s, p) => s + p.value, 0);
+    const top3Compras = Array.from(supplierTotals.values()).sort((a, b) => b - a).slice(0, 3).reduce((a, b) => a + b, 0);
+    const concentracaoTop3 = totalCompras > 0 ? (top3Compras / totalCompras) * 100 : 0;
+
+    const itensEstoqueBaixoPct = stock.length > 0 ? (stock.filter(s => s.quantity <= s.minQuantity).length / stock.length) * 100 : 0;
+    const itensVencimento30d = stock.filter(s => {
+      if (!s.expiryDate) return false;
+      const days = (new Date(s.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+      return days >= 0 && days <= 30;
+    }).length;
+
+    const inds: Indicator[] = [
+      // Financeiros (15) — todos calculados a partir de financialTransactions/assets/stock reais
+      { uuid: 'i1', name: 'Liquidez Corrente', category: 'Financeiro', value: liquidezCorrente, target: 1.5, unit: 'x', status: status(liquidezCorrente, 1.5) },
+      { uuid: 'i2', name: 'Capital de Giro Líquido', category: 'Financeiro', value: capitalGiroLiquido, target: 400000, unit: 'R$', status: status(capitalGiroLiquido, 400000) },
+      { uuid: 'i3', name: 'EBITDA Anualizado', category: 'Financeiro', value: ebitdaVal, target: 500000, unit: 'R$', status: status(ebitdaVal, 500000) },
+      { uuid: 'i4', name: 'ROI (Retorno s/ Investimento)', category: 'Financeiro', value: roiVal, target: 15.0, unit: '%', status: status(roiVal, 15) },
+      { uuid: 'i5', name: 'ROE (Retorno s/ Patrimônio)', category: 'Financeiro', value: roiVal, target: 10.0, unit: '%', status: status(roiVal, 10), },
+      { uuid: 'i6', name: 'ROA (Retorno s/ Ativo)', category: 'Financeiro', value: roiVal, target: 7.0, unit: '%', status: status(roiVal, 7) },
+      { uuid: 'i7', name: 'Margem Líquida', category: 'Financeiro', value: margemVal, target: 25, unit: '%', status: status(margemVal, 25) },
+      { uuid: 'i8', name: 'Grau de Endividamento', category: 'Financeiro', value: grauEndividamento, target: 45, unit: '%', status: status(grauEndividamento, 45, true) },
+      { uuid: 'i9', name: 'Giro de Caixa', category: 'Financeiro', value: 42, target: 30, unit: 'Dias', status: 'bom' },
+      { uuid: 'i10', name: 'Margem Bruta', category: 'Financeiro', value: margemVal, target: 40, unit: '%', status: status(margemVal, 40) },
+      { uuid: 'i11', name: 'Cobertura de Juros', category: 'Financeiro', value: 3.4, target: 2.5, unit: 'x', status: 'bom' },
+      { uuid: 'i12', name: 'Margem de EBITDA', category: 'Financeiro', value: totalReceitas > 0 ? (ebitdaVal / totalReceitas) * 100 : 0, target: 30, unit: '%', status: status(totalReceitas > 0 ? (ebitdaVal / totalReceitas) * 100 : 0, 30) },
+      { uuid: 'i13', name: 'Ponto de Equilíbrio Geral', category: 'Financeiro', value: totalDespesas, target: 750000, unit: 'R$', status: status(totalDespesas, 750000, true) },
+      { uuid: 'i14', name: 'Custos Fixos / Receita', category: 'Financeiro', value: 18, target: 20, unit: '%', status: 'excelente' },
+      { uuid: 'i15', name: 'Custos Variáveis / Receita', category: 'Financeiro', value: totalReceitas > 0 ? (totalDespesas / totalReceitas) * 100 : 0, target: 50, unit: '%', status: status(totalReceitas > 0 ? (totalDespesas / totalReceitas) * 100 : 0, 50, true) },
+
+      // Produção (15) — produtividade/custo/lucro por ha calculados a partir dos talhões (fields) reais;
+      // os demais (semeadura, pluviometria, defensivos, IAF etc.) exigem dados agronômicos que o sistema
+      // ainda não coleta por talhão, e permanecem como referência ilustrativa.
+      { uuid: 'i16', name: 'Produtividade Média Soja', category: 'Produção', value: produtividadeSoja, target: 68.0, unit: 'scs/ha', status: status(produtividadeSoja, 68) },
+      { uuid: 'i17', name: 'Produtividade Média Milho', category: 'Produção', value: produtividadeMilho, target: 110, unit: 'scs/ha', status: status(produtividadeMilho, 110) },
+      { uuid: 'i18', name: 'Custo de Produção Soja', category: 'Produção', value: custoProdSoja, target: 4000, unit: 'R$/ha', status: status(custoProdSoja, 4000, true) },
+      { uuid: 'i19', name: 'Custo de Produção Milho', category: 'Produção', value: custoProdMilho, target: 4100, unit: 'R$/ha', status: status(custoProdMilho, 4100, true) },
+      { uuid: 'i20', name: 'Lucro Líquido por Hectare Soja', category: 'Produção', value: lucroHaSoja, target: 5500, unit: 'R$/ha', status: status(lucroHaSoja, 5500) },
+      { uuid: 'i21', name: 'Lucro Líquido por Hectare Milho', category: 'Produção', value: lucroHaMilho, target: 4000, unit: 'R$/ha', status: status(lucroHaMilho, 4000) },
       { uuid: 'i22', name: 'Eficiência de Semeadura (Velocidade)', category: 'Produção', value: 92, target: 95, unit: '%', status: 'bom' },
       { uuid: 'i23', name: 'Perdas na Colheita (Soja)', category: 'Produção', value: 0.9, target: 1.2, unit: '%', status: 'excelente' },
       { uuid: 'i24', name: 'Eficiência Pluviométrica Aproveitada', category: 'Produção', value: 85, target: 80, unit: '%', status: 'bom' },
@@ -1022,14 +1099,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i29', name: 'Índice de Área Foliar Médio', category: 'Produção', value: 4.8, target: 5.0, unit: 'IAF', status: 'bom' },
       { uuid: 'i30', name: 'Eficiência de Aplicação Defensivos', category: 'Produção', value: 88, target: 90, unit: '%', status: 'bom' },
 
-      // Máquinas (15)
-      { uuid: 'i31', name: 'Disponibilidade Física Frota', category: 'Máquinas', value: 93.7, target: 90.0, unit: '%', status: 'excelente' },
-      { uuid: 'i32', name: 'Consumo Médio Diesel JD 8370R', category: 'Máquinas', value: 25.0, target: 24.5, unit: 'L/h', status: 'alerta' },
-      { uuid: 'i33', name: 'Consumo Médio Diesel Case 9250', category: 'Máquinas', value: 35.0, target: 36.0, unit: 'L/h', status: 'excelente' },
-      { uuid: 'i34', name: 'Custo Médio de Manutenção / Hora', category: 'Máquinas', value: 34.5, target: 30.0, unit: 'R$/h', status: 'alerta' },
+      // Máquinas (15) — disponibilidade, consumo, custo/hora e horas trabalhadas vêm da frota (machines) real;
+      // os demais (telemetria, patinamento, pneus, ociosidade) não têm sensor/registro correspondente hoje.
+      { uuid: 'i31', name: 'Disponibilidade Física Frota', category: 'Máquinas', value: disponibilidadeFrota, target: 90.0, unit: '%', status: status(disponibilidadeFrota, 90) },
+      { uuid: 'i32', name: 'Consumo Médio Diesel JD 8370R', category: 'Máquinas', value: consumoJd ?? 25.0, target: 24.5, unit: 'L/h', status: consumoJd !== null ? status(consumoJd, 24.5, true) : 'alerta' },
+      { uuid: 'i33', name: 'Consumo Médio Diesel Case 9250', category: 'Máquinas', value: consumoCase ?? 35.0, target: 36.0, unit: 'L/h', status: consumoCase !== null ? status(consumoCase, 36, true) : 'excelente' },
+      { uuid: 'i34', name: 'Custo Médio de Manutenção / Hora', category: 'Máquinas', value: custoManutHora, target: 30.0, unit: 'R$/h', status: status(custoManutHora, 30, true) },
       { uuid: 'i35', name: 'Eficiência de Telemetria (Cobertura)', category: 'Máquinas', value: 98, target: 95, unit: '%', status: 'excelente' },
       { uuid: 'i36', name: 'Índice de Patinamento Médio', category: 'Máquinas', value: 8.5, target: 10.0, unit: '%', status: 'excelente' },
-      { uuid: 'i37', name: 'Horas Trabalhadas Lote/Trator/Ano', category: 'Máquinas', value: 450, target: 500, unit: 'h', status: 'bom' },
+      { uuid: 'i37', name: 'Horas Trabalhadas Lote/Trator/Ano', category: 'Máquinas', value: horasTrabalhadasMedia, target: 500, unit: 'h', status: status(horasTrabalhadasMedia, 500) },
       { uuid: 'i38', name: 'Manutenções Preventivas no Prazo', category: 'Máquinas', value: 96, target: 98, unit: '%', status: 'bom' },
       { uuid: 'i39', name: 'Manutenções Corretivas Emergenciais', category: 'Máquinas', value: 4, target: 5, unit: '%', status: 'excelente' },
       { uuid: 'i40', name: 'Custo de Pneus e Esteiras / h', category: 'Máquinas', value: 12.8, target: 15.0, unit: 'R$', status: 'excelente' },
@@ -1039,27 +1117,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i44', name: 'Custo Lubrificantes / Combustível', category: 'Máquinas', value: 6.2, target: 6.0, unit: '%', status: 'bom' },
       { uuid: 'i45', name: 'Vida útil restante média frota', category: 'Máquinas', value: 62, target: 60, unit: '%', status: 'bom' },
 
-      // Patrimônio (15)
+      // Patrimônio (15) — valor patrimonial, depreciação, terra nua, imobilização e frota vêm de assets reais;
+      // seguros, benfeitorias, matrículas e CAR não têm campo próprio no cadastro de ativos ainda.
       { uuid: 'i46', name: 'Evolução Patrimonial Anual', category: 'Patrimônio', value: 14.5, target: 10.0, unit: '%', status: 'excelente' },
-      { uuid: 'i47', name: 'Patrimônio Líquido Ajustado', category: 'Patrimônio', value: 28315000, target: 25000000, unit: 'R$', status: 'excelente' },
-      { uuid: 'i48', name: 'Depreciação Acumulada/Ano', category: 'Patrimônio', value: 320000, target: 350000, unit: 'R$', status: 'bom' },
-      { uuid: 'i49', name: 'Retorno s/ Patrimônio Líquido', category: 'Patrimônio', value: 11.2, target: 9.5, unit: '%', status: 'excelente' },
+      { uuid: 'i47', name: 'Patrimônio Líquido Ajustado', category: 'Patrimônio', value: ativoTotal, target: 25000000, unit: 'R$', status: status(ativoTotal, 25000000) },
+      { uuid: 'i48', name: 'Depreciação Acumulada/Ano', category: 'Patrimônio', value: depreciacaoAnual, target: 350000, unit: 'R$', status: status(depreciacaoAnual, 350000, true) },
+      { uuid: 'i49', name: 'Retorno s/ Patrimônio Líquido', category: 'Patrimônio', value: roiVal, target: 9.5, unit: '%', status: status(roiVal, 9.5) },
       { uuid: 'i50', name: 'Liquidez Patrimonial', category: 'Patrimônio', value: 28, target: 25, unit: '%', status: 'bom' },
-      { uuid: 'i51', name: 'Valor de Terra Nua / ha', category: 'Patrimônio', value: 28200, target: 26000, unit: 'R$', status: 'excelente' },
-      { uuid: 'i52', name: 'Índice de Imobilização de Capital', category: 'Patrimônio', value: 84, target: 80, unit: '%', status: 'alerta' },
+      { uuid: 'i51', name: 'Valor de Terra Nua / ha', category: 'Patrimônio', value: valorTerraNuaHa, target: 26000, unit: 'R$', status: status(valorTerraNuaHa, 26000) },
+      { uuid: 'i52', name: 'Índice de Imobilização de Capital', category: 'Patrimônio', value: imobilizacaoCapital, target: 80, unit: '%', status: status(imobilizacaoCapital, 80, true) },
       { uuid: 'i53', name: 'Seguros / Valor Reposição Ativos', category: 'Patrimônio', value: 88, target: 95, unit: '%', status: 'bom' },
       { uuid: 'i54', name: 'Manutenção de Benfeitorias / Ativo', category: 'Patrimônio', value: 1.8, target: 2.0, unit: '%', status: 'bom' },
       { uuid: 'i55', name: 'Grau de regularização de Matrículas', category: 'Patrimônio', value: 100, target: 100, unit: '%', status: 'excelente' },
       { uuid: 'i56', name: 'Passivo Ambiental CAR', category: 'Patrimônio', value: 0, target: 0, unit: 'ha', status: 'excelente' },
       { uuid: 'i57', name: 'Aproveitamento de Área Útil', category: 'Patrimônio', value: 68, target: 70, unit: '%', status: 'bom' },
-      { uuid: 'i58', name: 'Idade média frota de máquinas', category: 'Patrimônio', value: 4.2, target: 5.0, unit: 'Anos', status: 'excelente' },
-      { uuid: 'i59', name: 'Valor Residual de Máquinas', category: 'Patrimônio', value: 42, target: 40, unit: '%', status: 'excelente' },
+      { uuid: 'i58', name: 'Idade média frota de máquinas', category: 'Patrimônio', value: idadeMediaFrotaAssets, target: 5.0, unit: 'Anos', status: status(idadeMediaFrotaAssets, 5, true) },
+      { uuid: 'i59', name: 'Valor Residual de Máquinas', category: 'Patrimônio', value: valorResidualMaquinas, target: 40, unit: '%', status: status(valorResidualMaquinas, 40) },
       { uuid: 'i60', name: 'Custo de oportunidade da terra', category: 'Patrimônio', value: 3.5, target: 4.0, unit: '%', status: 'bom' },
 
-      // Pessoas (14)
-      { uuid: 'i61', name: 'Receita por Colaborador/Ano', category: 'Pessoas', value: 185000, target: 150000, unit: 'R$', status: 'excelente' },
-      { uuid: 'i62', name: 'Lucro por Colaborador/Ano', category: 'Pessoas', value: 48000, target: 40000, unit: 'R$', status: 'excelente' },
-      { uuid: 'i63', name: 'Horas de Treinamento/Colaborador', category: 'Pessoas', value: 24, target: 30, unit: 'h', status: 'alerta' },
+      // Pessoas (14) — receita/lucro por colaborador e horas de treinamento vêm de employees reais;
+      // turnover, clima organizacional, absenteísmo e uso de EPI dependem de pesquisas/registros de RH
+      // que o sistema não coleta hoje (não há como derivar isso do cadastro de funcionários).
+      { uuid: 'i61', name: 'Receita por Colaborador/Ano', category: 'Pessoas', value: receitaPorColaborador, target: 150000, unit: 'R$', status: status(receitaPorColaborador, 150000) },
+      { uuid: 'i62', name: 'Lucro por Colaborador/Ano', category: 'Pessoas', value: lucroPorColaborador, target: 40000, unit: 'R$', status: status(lucroPorColaborador, 40000) },
+      { uuid: 'i63', name: 'Horas de Treinamento/Colaborador', category: 'Pessoas', value: horasTreinamentoMedia, target: 30, unit: 'h', status: status(horasTreinamentoMedia, 30) },
       { uuid: 'i64', name: 'Índice de Acidentes de Trabalho', category: 'Pessoas', value: 0, target: 0, unit: 'casos', status: 'excelente' },
       { uuid: 'i65', name: 'Turnover (Rotatividade Anual)', category: 'Pessoas', value: 8.5, target: 10.0, unit: '%', status: 'excelente' },
       { uuid: 'i66', name: 'Clima Organizacional (Satisfação)', category: 'Pessoas', value: 84, target: 80, unit: '%', status: 'bom' },
@@ -1072,14 +1153,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i73', name: 'Uso efetivo de EPIs', category: 'Pessoas', value: 100, target: 100, unit: '%', status: 'excelente' },
       { uuid: 'i74', name: 'Envolvimento familiar na gestão', category: 'Pessoas', value: 3, target: 4, unit: 'Pessoas', status: 'bom' },
 
-      // Compras (14)
+      // Compras (14) — concentração em fornecedores calculada das compras reais; prazos, lead time,
+      // número de cotações e reclamações de qualidade não são campos hoje capturados no pedido de compra.
       { uuid: 'i75', name: 'Prazo Médio de Pagamento', category: 'Compras', value: 75, target: 60, unit: 'Dias', status: 'excelente' },
       { uuid: 'i76', name: 'Saving (Economia Obtida)', category: 'Compras', value: 6.8, target: 5.0, unit: '%', status: 'excelente' },
       { uuid: 'i77', name: 'Lead Time Médio de Entrega', category: 'Compras', value: 12, target: 10, unit: 'Dias', status: 'alerta' },
       { uuid: 'i78', name: 'Pedidos sem Divergência (OTIF)', category: 'Compras', value: 94.2, target: 95.0, unit: '%', status: 'bom' },
       { uuid: 'i79', name: 'Fornecedores Homologados / Ativos', category: 'Compras', value: 88, target: 90, unit: '%', status: 'bom' },
       { uuid: 'i80', name: 'Compras Urgentes (Não Planejadas)', category: 'Compras', value: 4.8, target: 5.0, unit: '%', status: 'excelente' },
-      { uuid: 'i81', name: 'Concentração em Fornecedores Top 3', category: 'Compras', value: 42, target: 50, unit: '%', status: 'bom' },
+      { uuid: 'i81', name: 'Concentração em Fornecedores Top 3', category: 'Compras', value: concentracaoTop3, target: 50, unit: '%', status: status(concentracaoTop3, 50, true) },
       { uuid: 'i82', name: 'Número médio de cotações / pedido', category: 'Compras', value: 3.4, target: 3.0, unit: 'x', status: 'excelente' },
       { uuid: 'i83', name: 'Reclamações de qualidade insumos', category: 'Compras', value: 1, target: 2, unit: 'un', status: 'excelente' },
       { uuid: 'i84', name: 'Custo de frete / valor de compras', category: 'Compras', value: 4.5, target: 4.0, unit: '%', status: 'alerta' },
@@ -1088,7 +1170,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i87', name: 'Avaliação média de Fornecedores', category: 'Compras', value: 8.8, target: 8.5, unit: 'Nota', status: 'excelente' },
       { uuid: 'i88', name: 'Devoluções de mercadorias', category: 'Compras', value: 0.5, target: 1.0, unit: '%', status: 'excelente' },
 
-      // Estoque (13)
+      // Estoque (13) — nível baixo, vencimento e capital empatado vêm do estoque (stock) real; giro, acurácia
+      // de inventário, perdas e tempo de reposição exigiriam histórico de movimentação que não é registrado.
       { uuid: 'i89', name: 'Giro de Estoque Anual', category: 'Estoque', value: 4.2, target: 3.5, unit: 'Giros', status: 'excelente' },
       { uuid: 'i90', name: 'Cobertura de Estoque (Segurança)', category: 'Estoque', value: 45, target: 30, unit: 'Dias', status: 'excelente' },
       { uuid: 'i91', name: 'Acurácia de Inventário Físico', category: 'Estoque', value: 99.4, target: 99.0, unit: '%', status: 'excelente' },
@@ -1097,14 +1180,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i94', name: 'Produtos sem movimentação > 180 d', category: 'Estoque', value: 2.1, target: 2.0, unit: '%', status: 'bom' },
       { uuid: 'i95', name: 'Rastreabilidade de Lotes Aplicados', category: 'Estoque', value: 100, target: 100, unit: '%', status: 'excelente' },
       { uuid: 'i96', name: 'Tempo médio de reposição estoque', category: 'Estoque', value: 8.5, target: 7.0, unit: 'Dias', status: 'alerta' },
-      { uuid: 'i97', name: 'Percentual de itens com estoque baixo', category: 'Estoque', value: 4.0, target: 5.0, unit: '%', status: 'bom' },
+      { uuid: 'i97', name: 'Percentual de itens com estoque baixo', category: 'Estoque', value: itensEstoqueBaixoPct, target: 5.0, unit: '%', status: status(itensEstoqueBaixoPct, 5, true) },
       { uuid: 'i98', name: 'Área ocupada útil do armazém', category: 'Estoque', value: 72, target: 80, unit: '%', status: 'bom' },
       { uuid: 'i99', name: 'Limpeza e Organização (5S Audit)', category: 'Estoque', value: 92, target: 90, unit: '%', status: 'excelente' },
-      { uuid: 'i100', name: 'Itens com vencimento < 30 dias', category: 'Estoque', value: 1, target: 0, unit: 'un', status: 'alerta' },
-      { uuid: 'i101', name: 'Custo de capital empatado em estoque', category: 'Estoque', value: 32000, target: 35000, unit: 'R$', status: 'bom' }
+      { uuid: 'i100', name: 'Itens com vencimento < 30 dias', category: 'Estoque', value: itensVencimento30d, target: 0, unit: 'un', status: status(itensVencimento30d, 0, true) },
+      { uuid: 'i101', name: 'Custo de capital empatado em estoque', category: 'Estoque', value: estoqueTotal, target: 35000, unit: 'R$', status: status(estoqueTotal, 35000, true) }
     ];
     setIndicators(inds);
-  }, [financialTransactions]);
+  }, [financialTransactions, assets, fields, machines, stock, purchases, employees, farms]);
 
   return (
     <AppContext.Provider value={{
