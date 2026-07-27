@@ -1,9 +1,11 @@
 import React from 'react';
-import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
+import { ROLE_LABELS } from '../../lib/roles';
 import { User, Shield } from 'lucide-react';
 
 export const SettingsModule: React.FC = () => {
-  const { userProfile } = useApp();
+  const { profile } = useAuth();
+  const roleLabel = profile ? ROLE_LABELS[profile.role] : '';
 
   return (
     <div className="space-y-6 animate-fade-in p-1">
@@ -28,15 +30,15 @@ export const SettingsModule: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div>
               <span className="text-3xs text-slate-400 font-bold block mb-1">Nome Completo:</span>
-              <span className="font-bold text-slate-700 dark:text-slate-200">Dr. Marcelo Silva</span>
+              <span className="font-bold text-slate-700 dark:text-slate-200">{profile?.fullName ?? '-'}</span>
             </div>
             <div>
               <span className="text-3xs text-slate-400 font-bold block mb-1">E-mail:</span>
-              <span className="font-bold text-slate-700 dark:text-slate-200">marcelo.silva@agrocontrol.com.br</span>
+              <span className="font-bold text-slate-700 dark:text-slate-200">{profile?.email ?? '-'}</span>
             </div>
             <div>
               <span className="text-3xs text-slate-400 font-bold block mb-1">Perfil Corporativo:</span>
-              <span className="font-bold text-brand-600 dark:text-brand-400">{userProfile}</span>
+              <span className="font-bold text-brand-600 dark:text-brand-400">{roleLabel}</span>
             </div>
             <div>
               <span className="text-3xs text-slate-400 font-bold block mb-1">Empresa Agrícola:</span>
@@ -51,7 +53,7 @@ export const SettingsModule: React.FC = () => {
             Políticas de Acesso
           </h3>
           <div className="text-3xs text-slate-400 space-y-2.5">
-            <p>O perfil **{userProfile}** possui privilégios de edição na maioria dos módulos operacionais, incluindo diagnósticos e planos de ação.</p>
+            <p>O perfil **{roleLabel}** possui privilégios de edição na maioria dos módulos operacionais, incluindo diagnósticos e planos de ação.</p>
             <div className="flex justify-between border-t border-slate-100 dark:border-slate-800/80 pt-2.5 font-semibold">
               <span>Auditoria de Logs:</span>
               <span className="text-emerald-500">Ativa (100%)</span>

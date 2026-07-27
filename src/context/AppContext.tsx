@@ -172,8 +172,6 @@ interface AppContextType {
   setCropFilter: (c: string) => void;
   farmFilter: string;
   setFarmFilter: (f: string) => void;
-  userProfile: string;
-  setUserProfile: (p: string) => void;
 
   farms: Property[];
   setFarms: React.Dispatch<React.SetStateAction<Property[]>>;
@@ -441,7 +439,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeTab, setActiveTab] = useState('dashboard');
   const [cropFilter, setCropFilter] = useState('2025/26');
   const [farmFilter, setFarmFilter] = useState('Fazenda Bela Vista');
-  const [userProfile, setUserProfile] = useState('Consultor');
 
   const [farms, setFarms] = useState<Property[]>([]);
   const [diagnosisQuestions, setDiagnosisQuestions] = useState<DiagnosisQuestion[]>([]);
@@ -1117,7 +1114,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       activeTab, setActiveTab,
       cropFilter, setCropFilter,
       farmFilter, setFarmFilter,
-      userProfile, setUserProfile,
       farms, setFarms,
       addFarm, updateFarm, removeFarm,
       diagnosisQuestions,

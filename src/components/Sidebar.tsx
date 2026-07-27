@@ -1,30 +1,33 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { 
-  LayoutDashboard, 
-  ClipboardCheck, 
-  BarChart3, 
-  Map, 
-  Sprout, 
-  Hammer, 
-  Truck, 
-  Wrench, 
-  Users, 
-  Boxes, 
-  ShoppingCart, 
-  UsersRound, 
-  HandCoins, 
-  Coins, 
-  FileSpreadsheet, 
-  Scale, 
-  CheckSquare, 
-  Files, 
-  TrendingUp, 
+import { useAuth } from '../context/AuthContext';
+import { isTabAllowed } from '../lib/roles';
+import {
+  LayoutDashboard,
+  ClipboardCheck,
+  BarChart3,
+  Map,
+  Sprout,
+  Hammer,
+  Truck,
+  Wrench,
+  Users,
+  Boxes,
+  ShoppingCart,
+  UsersRound,
+  HandCoins,
+  Coins,
+  FileSpreadsheet,
+  Scale,
+  CheckSquare,
+  Files,
+  TrendingUp,
   Settings,
   ChevronLeft,
   ChevronRight,
   Building,
-  Target
+  Target,
+  ShieldCheck
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -40,6 +43,7 @@ interface SidebarGroup {
 
 export const Sidebar: React.FC = () => {
   const { activeTab, setActiveTab } = useApp();
+  const { profile } = useAuth();
   const [collapsed, setCollapsed] = React.useState(false);
 
   const menuGroups: SidebarGroup[] = [
@@ -94,8 +98,25 @@ export const Sidebar: React.FC = () => {
         { id: 'reports', label: 'Relatórios Gerenciais', icon: BarChart3 },
         { id: 'settings', label: 'Configurações', icon: Settings }
       ]
+    },
+    {
+      title: 'Administração',
+      items: [
+        { id: 'users', label: 'Usuários', icon: ShieldCheck }
+      ]
     }
   ];
+
+  // Mostra só as abas permitidas para o papel do usuário logado, e some
+  // com grupos que ficarem vazios depois do filtro (ex: "Administração"
+  // para quem não é admin).
+  const role = profile?.role;
+  const visibleMenuGroups = menuGroups
+    .map(group => ({
+      ...group,
+      items: group.items.filter(item => role && isTabAllowed(role, item.id)),
+    }))
+    .filter(group => group.items.length > 0);
 
   return (
     <aside 
@@ -125,7 +146,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Itens do Menu */}
       <div className="flex-1 overflow-y-auto py-4 px-2 space-y-4">
-        {menuGroups.map((group, idx) => (
+        {visibleMenuGroups.map((group, idx) => (
           <div key={idx} className="space-y-1">
             {!collapsed && (
               <h3 className="px-3 text-2xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">

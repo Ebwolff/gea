@@ -1,4 +1,7 @@
+import { useEffect } from 'react';
 import { useApp } from './context/AppContext';
+import { useAuth } from './context/AuthContext';
+import { isTabAllowed } from './lib/roles';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AiAssistant } from './components/AiAssistant';
@@ -19,15 +22,17 @@ import { EmployeesModule } from './components/modules/EmployeesModule';
 import { PlanningModule } from './components/modules/PlanningModule';
 import { ReportsModule } from './components/modules/ReportsModule';
 import { SettingsModule } from './components/modules/SettingsModule';
-import { 
-  ImplementsModule, 
-  SuppliersModule, 
-  ClientsModule, 
-  DocumentsModule 
+import { UserManagementModule } from './components/modules/UserManagementModule';
+import {
+  ImplementsModule,
+  SuppliersModule,
+  ClientsModule,
+  DocumentsModule
 } from './components/modules/MiscModules';
 
 function App() {
-  const { activeTab, loading } = useApp();
+  const { activeTab, setActiveTab, loading } = useApp();
+  const { profile } = useAuth();
 
   // Seletor de Renderização de Módulos
   const renderModule = () => {
@@ -73,10 +78,21 @@ function App() {
         return <ReportsModule />;
       case 'settings':
         return <SettingsModule />;
+      case 'users':
+        return <UserManagementModule />;
       default:
         return <DashboardModule />;
     }
   };
+
+  // Se a aba ativa não é permitida para o papel do usuário (ex: o papel foi
+  // rebaixado nesta sessão, ou o estado ficou em uma aba de admin), volta
+  // para o dashboard em vez de deixar o módulo indevido renderizado.
+  useEffect(() => {
+    if (profile && !isTabAllowed(profile.role, activeTab)) {
+      setActiveTab('dashboard');
+    }
+  }, [profile, activeTab, setActiveTab]);
 
   if (loading) {
     return (

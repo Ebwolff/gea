@@ -1,32 +1,24 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { Sun, Moon, Bell, User, Calendar, Briefcase } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { ROLE_LABELS } from '../lib/roles';
+import { Sun, Moon, Bell, Calendar, Briefcase, LogOut } from 'lucide-react';
 
 export const Header: React.FC = () => {
-  const { 
-    theme, setTheme, 
-    cropFilter, setCropFilter, 
+  const {
+    theme, setTheme,
+    cropFilter, setCropFilter,
     farmFilter, setFarmFilter,
-    userProfile, setUserProfile,
     farms,
     actionPlans,
     stock
   } = useApp();
+  const { profile, signOut } = useAuth();
 
   // Conta alertas ativos
   const criticalStockCount = stock.filter(s => s.quantity <= s.minQuantity).length;
   const criticalActionsCount = actionPlans.filter(ap => ap.priority === 'alta' && ap.status !== 'concluido').length;
   const totalAlerts = criticalStockCount + criticalActionsCount;
-
-  const profiles = [
-    'Administrador',
-    'Consultor',
-    'Produtor Rural',
-    'Gestor Financeiro',
-    'Gerente da Fazenda',
-    'Funcionário',
-    'Contador (Leitura)'
-  ];
 
   return (
     <header className="sticky top-0 bg-white/80 dark:bg-dark-card/85 backdrop-blur-md border-b border-slate-200/50 dark:border-dark-border/50 h-16 px-6 flex items-center justify-between z-10">
@@ -64,21 +56,6 @@ export const Header: React.FC = () => {
 
       {/* Ações, Perfil e Alternador de Tema */}
       <div className="flex items-center gap-4">
-        {/* Seletor de Perfil do Usuário */}
-        <div className="flex items-center gap-2 border-r border-slate-200 dark:border-slate-800 pr-4">
-          <User size={16} className="text-slate-400" />
-          <span className="text-2xs text-slate-400 dark:text-slate-500 font-semibold hidden md:inline">Perfil:</span>
-          <select
-            value={userProfile}
-            onChange={(e) => setUserProfile(e.target.value)}
-            className="bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-2xs font-bold text-brand-600 dark:text-brand-400 py-1 px-2.5 focus:ring-1 focus:ring-brand-500 cursor-pointer outline-none"
-          >
-            {profiles.map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-        </div>
-
         {/* Alternador de Tema Claro/Escuro */}
         <button
           onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
@@ -103,19 +80,26 @@ export const Header: React.FC = () => {
           </button>
         </div>
 
-        {/* Perfil Mini */}
-        <div className="flex items-center gap-2.5 ml-1">
+        {/* Perfil do Usuário Logado */}
+        <div className="flex items-center gap-2.5 ml-1 border-l border-slate-200 dark:border-slate-800 pl-4">
           <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700">
-            {userProfile.charAt(0)}
+            {(profile?.fullName ?? '?').charAt(0).toUpperCase()}
           </div>
           <div className="hidden lg:block text-left">
             <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-              {userProfile === 'Consultor' ? 'Dr. Marcelo Silva' : 'Produtor Agrícola'}
+              {profile?.fullName ?? 'Carregando...'}
             </div>
             <div className="text-3xs text-slate-400 dark:text-slate-500">
-              {userProfile}
+              {profile ? ROLE_LABELS[profile.role] : ''}
             </div>
           </div>
+          <button
+            onClick={() => signOut()}
+            title="Sair"
+            className="p-2 rounded-lg hover:bg-rose-500/10 text-slate-400 hover:text-rose-500 transition-colors"
+          >
+            <LogOut size={16} />
+          </button>
         </div>
       </div>
     </header>
