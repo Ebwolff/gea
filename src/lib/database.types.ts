@@ -142,3 +142,45 @@ export interface ChatMessageRow {
   charts: unknown;
   created_at: string;
 }
+
+export interface SupplierRow {
+  id: string;
+  name: string;
+  cnpj: string | null;
+  city: string | null;
+  category: string | null;
+  avg_payment_days: number | null;
+  rating: string | null;
+  created_at: string;
+}
+
+export interface ClientRow {
+  id: string;
+  name: string;
+  pickup_location: string | null;
+  contracted_volume: number | null;
+  volume_unit: string | null;
+  avg_price: number | null;
+  price_unit: string | null;
+  contract_status: string | null;
+  created_at: string;
+}
+
+export interface ImplementRow {
+  id: string;
+  name: string;
+  brand: string | null;
+  working_width: string | null;
+  last_lubrication_date: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface DocumentRow {
+  id: string;
+  title: string;
+  status: string;
+  expiry_date: string | null;
+  notes: string | null;
+  created_at: string;
+}

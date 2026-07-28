@@ -11,6 +11,10 @@ import type {
   EmployeeRow,
   ActionPlanItemRow,
   ChatMessageRow,
+  SupplierRow,
+  ClientRow,
+  ImplementRow,
+  DocumentRow,
 } from '../lib/database.types';
 
 // Interfaces
@@ -161,6 +165,46 @@ export interface Employee {
   status: 'Ativo' | 'Inativo';
 }
 
+export interface Supplier {
+  uuid: string;
+  name: string;
+  cnpj: string;
+  city: string;
+  category: string;
+  avgPaymentDays: number;
+  rating: string;
+}
+
+export interface Client {
+  uuid: string;
+  name: string;
+  pickupLocation: string;
+  contractedVolume: number;
+  volumeUnit: string;
+  avgPrice: number;
+  priceUnit: string;
+  contractStatus: string;
+}
+
+export interface Implement {
+  uuid: string;
+  name: string;
+  brand: string;
+  workingWidth: string;
+  lastLubricationDate: string;
+  status: string;
+}
+
+// Sem upload de arquivo real; "notes" guarda um texto livre (ex: "PDF 4.2 MB")
+// só como referência visual — anexar o arquivo de fato exigiria Supabase Storage.
+export interface AppDocument {
+  uuid: string;
+  title: string;
+  status: string;
+  expiryDate?: string;
+  notes: string;
+}
+
 interface AppContextType {
   loading: boolean;
 
@@ -229,6 +273,27 @@ interface AppContextType {
   actionPlans: ActionPlanItem[];
   addManualActionPlan: (p: Omit<ActionPlanItem, 'uuid'>) => void;
   updateActionPlanStatus: (uuid: string, status: ActionPlanItem['status']) => void;
+
+  suppliers: Supplier[];
+  addSupplier: (s: Omit<Supplier, 'uuid'>) => void;
+  updateSupplier: (uuid: string, data: Partial<Supplier>) => void;
+  removeSupplier: (uuid: string) => void;
+
+  clients: Client[];
+  addClient: (c: Omit<Client, 'uuid'>) => void;
+  updateClient: (uuid: string, data: Partial<Client>) => void;
+  removeClient: (uuid: string) => void;
+
+  implementsList: Implement[];
+  addImplement: (i: Omit<Implement, 'uuid'>) => void;
+  updateImplement: (uuid: string, data: Partial<Implement>) => void;
+  removeImplement: (uuid: string) => void;
+
+  documents: AppDocument[];
+  addDocument: (d: Omit<AppDocument, 'uuid'>) => void;
+  updateDocument: (uuid: string, data: Partial<AppDocument>) => void;
+  removeDocument: (uuid: string) => void;
+
   chatMessages: ChatMessage[];
   sendChatMessage: (msg: string) => void;
   clearChat: () => void;
@@ -359,6 +424,52 @@ function employeeFromRow(row: EmployeeRow): Employee {
   };
 }
 
+function supplierFromRow(row: SupplierRow): Supplier {
+  return {
+    uuid: row.id,
+    name: row.name,
+    cnpj: row.cnpj ?? '',
+    city: row.city ?? '',
+    category: row.category ?? '',
+    avgPaymentDays: row.avg_payment_days ?? 0,
+    rating: row.rating ?? '',
+  };
+}
+
+function clientFromRow(row: ClientRow): Client {
+  return {
+    uuid: row.id,
+    name: row.name,
+    pickupLocation: row.pickup_location ?? '',
+    contractedVolume: row.contracted_volume !== null ? Number(row.contracted_volume) : 0,
+    volumeUnit: row.volume_unit ?? '',
+    avgPrice: row.avg_price !== null ? Number(row.avg_price) : 0,
+    priceUnit: row.price_unit ?? '',
+    contractStatus: row.contract_status ?? '',
+  };
+}
+
+function implementFromRow(row: ImplementRow): Implement {
+  return {
+    uuid: row.id,
+    name: row.name,
+    brand: row.brand ?? '',
+    workingWidth: row.working_width ?? '',
+    lastLubricationDate: row.last_lubrication_date ?? '',
+    status: row.status,
+  };
+}
+
+function documentFromRow(row: DocumentRow): AppDocument {
+  return {
+    uuid: row.id,
+    title: row.title,
+    status: row.status,
+    expiryDate: row.expiry_date ?? undefined,
+    notes: row.notes ?? '',
+  };
+}
+
 function actionPlanFromRow(row: ActionPlanItemRow): ActionPlanItem {
   return {
     uuid: row.id,
@@ -442,6 +553,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [purchases, setPurchases] = useState<PurchaseRequest[]>([]);
   const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [implementsList, setImplementsList] = useState<Implement[]>([]);
+  const [documents, setDocuments] = useState<AppDocument[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   // Carga inicial: busca todas as tabelas do Supabase em paralelo.
@@ -452,6 +567,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const [
         farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes,
         stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes,
+        suppliersRes, clientsRes, implementsRes, documentsRes,
       ] = await Promise.all([
         supabase.from('properties').select('*').order('created_at'),
         supabase.from('diagnosis_questions').select('*').order('id'),
@@ -464,11 +580,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('employees').select('*').order('created_at'),
         supabase.from('action_plan_items').select('*').order('created_at'),
         supabase.from('chat_messages').select('*').order('created_at'),
+        supabase.from('suppliers').select('*').order('created_at'),
+        supabase.from('clients').select('*').order('created_at'),
+        supabase.from('implements').select('*').order('created_at'),
+        supabase.from('documents').select('*').order('created_at'),
       ]);
 
       if (cancelled) return;
 
-      const results = { farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes, stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes };
+      const results = { farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes, stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes, suppliersRes, clientsRes, implementsRes, documentsRes };
       for (const [label, res] of Object.entries(results)) {
         if (res.error) console.error(`Erro ao carregar "${label}" do Supabase:`, res.error);
       }
@@ -485,6 +605,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setPurchases((purchasesRes.data ?? []).map(purchaseFromRow));
       setEmployees((employeesRes.data ?? []).map(employeeFromRow));
       setActionPlans((actionPlansRes.data ?? []).map(actionPlanFromRow));
+      setSuppliers((suppliersRes.data ?? []).map(supplierFromRow));
+      setClients((clientsRes.data ?? []).map(clientFromRow));
+      setImplementsList((implementsRes.data ?? []).map(implementFromRow));
+      setDocuments((documentsRes.data ?? []).map(documentFromRow));
 
       const loadedChat = (chatRes.data ?? []).map(chatMessageFromRow);
       if (loadedChat.length === 0) {
@@ -816,6 +940,127 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setEmployees(prev => prev.filter(e => e.uuid !== uuid));
     supabase.from('employees').delete().eq('id', uuid).then(({ error }) => {
       if (error) console.error('Erro ao excluir funcionário:', error);
+    });
+  };
+
+  // Fornecedores
+  const addSupplier = (s: Omit<Supplier, 'uuid'>) => {
+    const row = { name: s.name, cnpj: s.cnpj, city: s.city, category: s.category, avg_payment_days: s.avgPaymentDays, rating: s.rating };
+    supabase.from('suppliers').insert(row).select().single().then(({ data, error }) => {
+      if (error || !data) { console.error('Erro ao criar fornecedor:', error); return; }
+      setSuppliers(prev => [...prev, supplierFromRow(data)]);
+    });
+  };
+
+  const updateSupplier = (uuid: string, data: Partial<Supplier>) => {
+    setSuppliers(prev => prev.map(s => s.uuid === uuid ? { ...s, ...data } : s));
+    const patch: Record<string, unknown> = {};
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.cnpj !== undefined) patch.cnpj = data.cnpj;
+    if (data.city !== undefined) patch.city = data.city;
+    if (data.category !== undefined) patch.category = data.category;
+    if (data.avgPaymentDays !== undefined) patch.avg_payment_days = data.avgPaymentDays;
+    if (data.rating !== undefined) patch.rating = data.rating;
+    supabase.from('suppliers').update(patch).eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao atualizar fornecedor:', error);
+    });
+  };
+
+  const removeSupplier = (uuid: string) => {
+    setSuppliers(prev => prev.filter(s => s.uuid !== uuid));
+    supabase.from('suppliers').delete().eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao excluir fornecedor:', error);
+    });
+  };
+
+  // Clientes
+  const addClient = (c: Omit<Client, 'uuid'>) => {
+    const row = {
+      name: c.name, pickup_location: c.pickupLocation, contracted_volume: c.contractedVolume,
+      volume_unit: c.volumeUnit, avg_price: c.avgPrice, price_unit: c.priceUnit, contract_status: c.contractStatus,
+    };
+    supabase.from('clients').insert(row).select().single().then(({ data, error }) => {
+      if (error || !data) { console.error('Erro ao criar cliente:', error); return; }
+      setClients(prev => [...prev, clientFromRow(data)]);
+    });
+  };
+
+  const updateClient = (uuid: string, data: Partial<Client>) => {
+    setClients(prev => prev.map(c => c.uuid === uuid ? { ...c, ...data } : c));
+    const patch: Record<string, unknown> = {};
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.pickupLocation !== undefined) patch.pickup_location = data.pickupLocation;
+    if (data.contractedVolume !== undefined) patch.contracted_volume = data.contractedVolume;
+    if (data.volumeUnit !== undefined) patch.volume_unit = data.volumeUnit;
+    if (data.avgPrice !== undefined) patch.avg_price = data.avgPrice;
+    if (data.priceUnit !== undefined) patch.price_unit = data.priceUnit;
+    if (data.contractStatus !== undefined) patch.contract_status = data.contractStatus;
+    supabase.from('clients').update(patch).eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao atualizar cliente:', error);
+    });
+  };
+
+  const removeClient = (uuid: string) => {
+    setClients(prev => prev.filter(c => c.uuid !== uuid));
+    supabase.from('clients').delete().eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao excluir cliente:', error);
+    });
+  };
+
+  // Implementos
+  const addImplement = (i: Omit<Implement, 'uuid'>) => {
+    const row = { name: i.name, brand: i.brand, working_width: i.workingWidth, last_lubrication_date: i.lastLubricationDate || null, status: i.status };
+    supabase.from('implements').insert(row).select().single().then(({ data, error }) => {
+      if (error || !data) { console.error('Erro ao criar implemento:', error); return; }
+      setImplementsList(prev => [...prev, implementFromRow(data)]);
+    });
+  };
+
+  const updateImplement = (uuid: string, data: Partial<Implement>) => {
+    setImplementsList(prev => prev.map(i => i.uuid === uuid ? { ...i, ...data } : i));
+    const patch: Record<string, unknown> = {};
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.brand !== undefined) patch.brand = data.brand;
+    if (data.workingWidth !== undefined) patch.working_width = data.workingWidth;
+    if (data.lastLubricationDate !== undefined) patch.last_lubrication_date = data.lastLubricationDate || null;
+    if (data.status !== undefined) patch.status = data.status;
+    supabase.from('implements').update(patch).eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao atualizar implemento:', error);
+    });
+  };
+
+  const removeImplement = (uuid: string) => {
+    setImplementsList(prev => prev.filter(i => i.uuid !== uuid));
+    supabase.from('implements').delete().eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao excluir implemento:', error);
+    });
+  };
+
+  // Documentos
+  const addDocument = (d: Omit<AppDocument, 'uuid'>) => {
+    const row = { title: d.title, status: d.status, expiry_date: d.expiryDate || null, notes: d.notes };
+    supabase.from('documents').insert(row).select().single().then(({ data, error }) => {
+      if (error || !data) { console.error('Erro ao criar documento:', error); return; }
+      setDocuments(prev => [...prev, documentFromRow(data)]);
+    });
+  };
+
+  const updateDocument = (uuid: string, data: Partial<AppDocument>) => {
+    setDocuments(prev => prev.map(d => d.uuid === uuid ? { ...d, ...data } : d));
+    const patch: Record<string, unknown> = {};
+    if (data.title !== undefined) patch.title = data.title;
+    if (data.status !== undefined) patch.status = data.status;
+    if (data.expiryDate !== undefined) patch.expiry_date = data.expiryDate || null;
+    if (data.notes !== undefined) patch.notes = data.notes;
+    supabase.from('documents').update(patch).eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao atualizar documento:', error);
+    });
+  };
+
+  const removeDocument = (uuid: string) => {
+    setDocuments(prev => prev.filter(d => d.uuid !== uuid));
+    supabase.from('documents').delete().eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao excluir documento:', error);
     });
   };
 
@@ -1220,6 +1465,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       actionPlans,
       addManualActionPlan,
       updateActionPlanStatus,
+      suppliers,
+      addSupplier, updateSupplier, removeSupplier,
+      clients,
+      addClient, updateClient, removeClient,
+      implementsList,
+      addImplement, updateImplement, removeImplement,
+      documents,
+      addDocument, updateDocument, removeDocument,
       chatMessages,
       sendChatMessage,
       clearChat
