@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useToast } from '../Toast';
-import { Truck, Users, UserCheck, FileText, CheckCircle, Pencil, Trash2, Plus } from 'lucide-react';
+import { Truck, Users, UserCheck, FileText, CheckCircle, Pencil, Trash2, Plus, Receipt, Download, Paperclip } from 'lucide-react';
 
 const inputClass = "w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-dark-border rounded-lg text-xs py-1.5 px-3 focus:outline-none focus:ring-1 focus:ring-brand-500 text-slate-800 dark:text-slate-100";
 
@@ -203,7 +203,7 @@ export const SuppliersModule: React.FC = () => {
 // Clientes
 // ============================================================
 export const ClientsModule: React.FC = () => {
-  const { clients, addClient, updateClient, removeClient } = useApp();
+  const { clients, addClient, updateClient, removeClient, invoices, addInvoice, removeInvoice, getInvoiceDownloadUrl } = useApp();
   const { showToast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editingUuid, setEditingUuid] = useState<string | null>(null);
@@ -214,6 +214,15 @@ export const ClientsModule: React.FC = () => {
   const [avgPrice, setAvgPrice] = useState('');
   const [priceUnit, setPriceUnit] = useState('/ Saca');
   const [contractStatus, setContractStatus] = useState('Fixado');
+
+  const [invoicesClientUuid, setInvoicesClientUuid] = useState<string | null>(null);
+  const [invNumber, setInvNumber] = useState('');
+  const [invIssueDate, setInvIssueDate] = useState('');
+  const [invValue, setInvValue] = useState('');
+  const [invFile, setInvFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const invoicesPanelRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetForm = () => {
     setName(''); setPickupLocation(''); setContractedVolume(''); setVolumeUnit('Sacas (Soja)');
@@ -238,6 +247,48 @@ export const ClientsModule: React.FC = () => {
   const handleDelete = (uuid: string, n: string) => {
     if (confirm(`Excluir "${n}"?`)) { removeClient(uuid); showToast('Cliente excluído.', 'error'); }
   };
+
+  const resetInvoiceForm = () => {
+    setInvNumber(''); setInvIssueDate(''); setInvValue(''); setInvFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleOpenInvoices = (uuid: string) => {
+    setInvoicesClientUuid(prev => prev === uuid ? null : uuid);
+    resetInvoiceForm();
+    setTimeout(() => invoicesPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+  };
+
+  const handleUploadInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!invoicesClientUuid || !invFile) return;
+    setUploading(true);
+    try {
+      await addInvoice(invoicesClientUuid, invNumber, invIssueDate, parseFloat(invValue) || 0, invFile);
+      showToast('Nota fiscal enviada com sucesso!');
+      resetInvoiceForm();
+    } catch {
+      showToast('Erro ao enviar a nota fiscal.', 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDownloadInvoice = async (filePath: string) => {
+    try {
+      const url = await getInvoiceDownloadUrl(filePath);
+      window.open(url, '_blank');
+    } catch {
+      showToast('Erro ao gerar o link de download.', 'error');
+    }
+  };
+
+  const handleDeleteInvoice = (uuid: string, fileName: string) => {
+    if (confirm(`Excluir a nota fiscal "${fileName}"?`)) { removeInvoice(uuid); showToast('Nota fiscal excluída.', 'error'); }
+  };
+
+  const clientInvoices = invoices.filter(i => i.clientUuid === invoicesClientUuid);
+  const invoicesClient = clients.find(c => c.uuid === invoicesClientUuid);
 
   return (
     <div className="glass-panel p-6 rounded-xl space-y-4 animate-fade-in">
@@ -286,6 +337,7 @@ export const ClientsModule: React.FC = () => {
                 <td className="py-2 px-3 text-center"><span className="text-3xs text-blue-600 bg-blue-500/10 px-2 py-0.5 rounded font-bold">{c.contractStatus}</span></td>
                 <td className="py-2 px-3 text-center">
                   <div className="flex items-center justify-center gap-1">
+                    <button onClick={() => handleOpenInvoices(c.uuid)} className={`p-1 rounded transition-colors ${invoicesClientUuid === c.uuid ? 'bg-brand-600 text-white' : 'hover:bg-brand-500/10 text-brand-600'}`} title="Notas Fiscais"><Receipt size={12} /></button>
                     <button onClick={() => handleEdit(c)} className="p-1 rounded hover:bg-blue-500/10 text-blue-500" title="Editar"><Pencil size={12} /></button>
                     <button onClick={() => handleDelete(c.uuid, c.name)} className="p-1 rounded hover:bg-rose-500/10 text-rose-500" title="Excluir"><Trash2 size={12} /></button>
                   </div>
@@ -295,6 +347,56 @@ export const ClientsModule: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {invoicesClientUuid && (
+        <div ref={invoicesPanelRef} className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-dark-border animate-fade-in space-y-4">
+          <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Receipt size={15} className="text-brand-600" />
+            Notas Fiscais — {invoicesClient?.name}
+          </h3>
+
+          <form onSubmit={handleUploadInvoice} className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div className="md:col-span-2">
+              <label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Arquivo (PDF/XML)</label>
+              <input ref={fileInputRef} type="file" required accept=".pdf,.xml,image/*" onChange={e => setInvFile(e.target.files?.[0] ?? null)} className={inputClass + ' py-1'} />
+            </div>
+            <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Número da NF</label><input value={invNumber} onChange={e => setInvNumber(e.target.value)} placeholder="000123" className={inputClass} /></div>
+            <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Data de Emissão</label><input type="date" value={invIssueDate} onChange={e => setInvIssueDate(e.target.value)} className={inputClass} /></div>
+            <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Valor (R$)</label><input type="number" step="0.01" value={invValue} onChange={e => setInvValue(e.target.value)} placeholder="0.00" className={inputClass} /></div>
+            <div className="flex items-end md:col-span-5">
+              <button type="submit" disabled={uploading || !invFile} className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold ml-auto flex items-center gap-1.5">
+                <Paperclip size={13} /> {uploading ? 'Enviando...' : 'Enviar Nota Fiscal'}
+              </button>
+            </div>
+          </form>
+
+          {clientInvoices.length === 0 ? (
+            <p className="text-3xs text-slate-400">Nenhuma nota fiscal enviada para este cliente ainda.</p>
+          ) : (
+            <div className="space-y-2">
+              {clientInvoices.map(inv => (
+                <div key={inv.uuid} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-dark-border">
+                  <div className="min-w-0 flex items-center gap-2">
+                    <FileText size={14} className="text-brand-600 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-3xs font-bold text-slate-700 dark:text-slate-200 truncate">{inv.fileName}</p>
+                      <p className="text-4xs text-slate-400">
+                        {inv.number ? `NF ${inv.number}` : 'Sem número'}
+                        {inv.issueDate ? ` • ${inv.issueDate}` : ''}
+                        {inv.value ? ` • R$ ${inv.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={() => handleDownloadInvoice(inv.filePath)} className="p-1.5 rounded hover:bg-brand-500/10 text-brand-600" title="Baixar"><Download size={13} /></button>
+                    <button onClick={() => handleDeleteInvoice(inv.uuid, inv.fileName)} className="p-1.5 rounded hover:bg-rose-500/10 text-rose-500" title="Excluir"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

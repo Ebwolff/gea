@@ -185,3 +185,14 @@ export interface DocumentRow {
   notes: string | null;
   created_at: string;
 }
+
+export interface InvoiceRow {
+  id: string;
+  client_id: string;
+  number: string | null;
+  issue_date: string | null;
+  value: number | null;
+  file_path: string;
+  file_name: string;
+  created_at: string;
+}

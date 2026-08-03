@@ -15,6 +15,7 @@ import type {
   ClientRow,
   ImplementRow,
   DocumentRow,
+  InvoiceRow,
 } from '../lib/database.types';
 
 // Interfaces
@@ -206,6 +207,18 @@ export interface AppDocument {
   notes: string;
 }
 
+// Nota fiscal emitida para um cliente: arquivo real (PDF/XML) no Supabase
+// Storage (bucket "invoices"), diferente de AppDocument que é só metadados.
+export interface Invoice {
+  uuid: string;
+  clientUuid: string;
+  number: string;
+  issueDate: string;
+  value: number;
+  filePath: string;
+  fileName: string;
+}
+
 interface AppContextType {
   loading: boolean;
 
@@ -295,6 +308,11 @@ interface AppContextType {
   addDocument: (d: Omit<AppDocument, 'uuid'>) => void;
   updateDocument: (uuid: string, data: Partial<AppDocument>) => void;
   removeDocument: (uuid: string) => void;
+
+  invoices: Invoice[];
+  addInvoice: (clientUuid: string, number: string, issueDate: string, value: number, file: File) => Promise<void>;
+  removeInvoice: (uuid: string) => void;
+  getInvoiceDownloadUrl: (filePath: string) => Promise<string>;
 
   chatMessages: ChatMessage[];
   sendChatMessage: (msg: string) => void;
@@ -473,6 +491,18 @@ function documentFromRow(row: DocumentRow): AppDocument {
   };
 }
 
+function invoiceFromRow(row: InvoiceRow): Invoice {
+  return {
+    uuid: row.id,
+    clientUuid: row.client_id,
+    number: row.number ?? '',
+    issueDate: row.issue_date ?? '',
+    value: row.value !== null ? Number(row.value) : 0,
+    filePath: row.file_path,
+    fileName: row.file_name,
+  };
+}
+
 function actionPlanFromRow(row: ActionPlanItemRow): ActionPlanItem {
   return {
     uuid: row.id,
@@ -560,6 +590,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [clients, setClients] = useState<Client[]>([]);
   const [implementsList, setImplementsList] = useState<Implement[]>([]);
   const [documents, setDocuments] = useState<AppDocument[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   // Carga inicial: busca todas as tabelas do Supabase em paralelo.
@@ -570,7 +601,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const [
         farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes,
         stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes,
-        suppliersRes, clientsRes, implementsRes, documentsRes,
+        suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes,
       ] = await Promise.all([
         supabase.from('properties').select('*').order('created_at'),
         supabase.from('diagnosis_questions').select('*').order('id'),
@@ -587,11 +618,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('clients').select('*').order('created_at'),
         supabase.from('implements').select('*').order('created_at'),
         supabase.from('documents').select('*').order('created_at'),
+        supabase.from('invoices').select('*').order('created_at'),
       ]);
 
       if (cancelled) return;
 
-      const results = { farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes, stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes, suppliersRes, clientsRes, implementsRes, documentsRes };
+      const results = { farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes, stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes, suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes };
       for (const [label, res] of Object.entries(results)) {
         if (res.error) console.error(`Erro ao carregar "${label}" do Supabase:`, res.error);
       }
@@ -612,6 +644,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setClients((clientsRes.data ?? []).map(clientFromRow));
       setImplementsList((implementsRes.data ?? []).map(implementFromRow));
       setDocuments((documentsRes.data ?? []).map(documentFromRow));
+      setInvoices((invoicesRes.data ?? []).map(invoiceFromRow));
 
       const loadedChat = (chatRes.data ?? []).map(chatMessageFromRow);
       if (loadedChat.length === 0) {
@@ -1076,6 +1109,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // Notas Fiscais (arquivo real no Supabase Storage, vinculado a um cliente)
+  const addInvoice = async (clientUuid: string, number: string, issueDate: string, value: number, file: File) => {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${clientUuid}/${Date.now()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage.from('invoices').upload(path, file);
+    if (uploadError) { console.error('Erro ao enviar arquivo da nota fiscal:', uploadError); throw uploadError; }
+    const row = { client_id: clientUuid, number: number || null, issue_date: issueDate || null, value, file_path: path, file_name: file.name };
+    const { data, error } = await supabase.from('invoices').insert(row).select().single();
+    if (error || !data) { console.error('Erro ao registrar nota fiscal:', error); throw error ?? new Error('Falha ao registrar nota fiscal'); }
+    setInvoices(prev => [...prev, invoiceFromRow(data)]);
+  };
+
+  const removeInvoice = (uuid: string) => {
+    const inv = invoices.find(i => i.uuid === uuid);
+    setInvoices(prev => prev.filter(i => i.uuid !== uuid));
+    supabase.from('invoices').delete().eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao excluir nota fiscal:', error);
+    });
+    if (inv) {
+      supabase.storage.from('invoices').remove([inv.filePath]).then(({ error }) => {
+        if (error) console.error('Erro ao excluir arquivo da nota fiscal:', error);
+      });
+    }
+  };
+
+  const getInvoiceDownloadUrl = async (filePath: string): Promise<string> => {
+    const { data, error } = await supabase.storage.from('invoices').createSignedUrl(filePath, 120);
+    if (error || !data) throw error ?? new Error('Falha ao gerar link de download');
+    return data.signedUrl;
+  };
+
   const addFarm = (f: Omit<Property, 'uuid' | 'status'>) => {
     const row = {
       name: f.name,
@@ -1486,6 +1550,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addImplement, updateImplement, removeImplement,
       documents,
       addDocument, updateDocument, removeDocument,
+      invoices,
+      addInvoice, removeInvoice, getInvoiceDownloadUrl,
       chatMessages,
       sendChatMessage,
       clearChat
