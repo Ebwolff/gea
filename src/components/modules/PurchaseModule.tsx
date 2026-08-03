@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ShoppingBag, Check, X } from 'lucide-react';
+import { ShoppingBag, Check, X, Trash2 } from 'lucide-react';
 
 export const PurchaseModule: React.FC = () => {
-  const { purchases, addPurchaseRequest, updatePurchaseStatus } = useApp();
+  const { purchases, addPurchaseRequest, updatePurchaseStatus, removePurchaseRequest } = useApp();
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [item, setItem] = useState('');
@@ -40,6 +40,12 @@ export const PurchaseModule: React.FC = () => {
 
   const handleReject = (uuid: string) => {
     updatePurchaseStatus(uuid, 'rejeitado');
+  };
+
+  const handleDelete = (uuid: string) => {
+    if (window.confirm('Deseja realmente excluir esta solicitação de compra?')) {
+      removePurchaseRequest(uuid);
+    }
   };
 
   return (
@@ -193,26 +199,33 @@ export const PurchaseModule: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-center">
-                      {isPending ? (
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => handleApprove(p.uuid)}
-                            className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
-                            title="Aprovar Pedido"
-                          >
-                            <Check size={12} />
-                          </button>
-                          <button
-                            onClick={() => handleReject(p.uuid)}
-                            className="p-1 rounded bg-rose-600 hover:bg-rose-500 text-white transition-colors"
-                            title="Rejeitar Pedido"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-3xs text-slate-400 font-medium">-</span>
-                      )}
+                      <div className="flex items-center justify-center gap-1.5">
+                        {isPending && (
+                          <>
+                            <button
+                              onClick={() => handleApprove(p.uuid)}
+                              className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                              title="Aprovar Pedido"
+                            >
+                              <Check size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleReject(p.uuid)}
+                              className="p-1 rounded bg-rose-600 hover:bg-rose-500 text-white transition-colors"
+                              title="Rejeitar Pedido"
+                            >
+                              <X size={12} />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => handleDelete(p.uuid)}
+                          className="p-1 rounded bg-slate-200 hover:bg-rose-600 dark:bg-slate-700 text-slate-600 hover:text-white dark:text-slate-300 transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

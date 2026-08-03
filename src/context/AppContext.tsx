@@ -259,6 +259,7 @@ interface AppContextType {
   purchases: PurchaseRequest[];
   addPurchaseRequest: (p: Omit<PurchaseRequest, 'uuid' | 'status' | 'date'>) => void;
   updatePurchaseStatus: (uuid: string, status: PurchaseRequest['status']) => void;
+  removePurchaseRequest: (uuid: string) => void;
 
   employees: Employee[];
   addEmployee: (e: Omit<Employee, 'uuid'>) => void;
@@ -914,6 +915,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const removePurchaseRequest = (uuid: string) => {
+    setPurchases(prev => prev.filter(p => p.uuid !== uuid));
+    supabase.from('purchase_requests').delete().eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao excluir pedido de compra:', error);
+    });
+  };
+
   const addEmployee = (e: Omit<Employee, 'uuid'>) => {
     const row = { name: e.name, role: e.role, dept: e.dept, training: e.training, performance: e.performance, status: e.status };
     supabase.from('employees').insert(row).select().single().then(({ data, error }) => {
@@ -1459,6 +1467,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       purchases,
       addPurchaseRequest,
       updatePurchaseStatus,
+      removePurchaseRequest,
       employees,
       addEmployee, updateEmployee, removeEmployee,
       indicators,
