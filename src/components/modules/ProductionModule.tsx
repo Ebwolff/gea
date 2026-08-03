@@ -21,37 +21,27 @@ export const ProductionModule: React.FC = () => {
   const [name, setName] = useState('');
   const [cropYear, setCropYear] = useState('2025/26');
   const [culture, setCulture] = useState('Soja');
-  const [area, setArea] = useState('');
   const [soilType, setSoilType] = useState('');
-  const [expectedYield, setExpectedYield] = useState('');
-  const [actualYield, setActualYield] = useState('');
-  const [costHa, setCostHa] = useState('');
-  const [revHa, setRevHa] = useState('');
   const [status, setStatus] = useState('Plantado');
 
   const resetForm = () => {
-    setName(''); setCropYear('2025/26'); setCulture('Soja'); setArea('');
-    setSoilType(''); setExpectedYield(''); setActualYield('');
-    setCostHa(''); setRevHa(''); setStatus('Plantado'); setEditingUuid(null);
+    setName(''); setCropYear('2025/26'); setCulture('Soja');
+    setSoilType(''); setStatus('Plantado'); setEditingUuid(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !area || !costHa) return;
-
-    const data = {
-      name, cropYear, culture, area: parseFloat(area),
-      soilType: soilType || 'Argiloso', expectedYield: parseFloat(expectedYield) || 0,
-      actualYield: actualYield ? parseFloat(actualYield) : undefined,
-      productionCostHa: parseFloat(costHa), revenueHa: parseFloat(revHa) || 0, status
-    };
+    if (!name) return;
 
     if (editingUuid) {
-      updateField(editingUuid, data);
+      updateField(editingUuid, { name, cropYear, culture, soilType: soilType || 'Argiloso', status });
       showToast('Talhão atualizado com sucesso!');
     } else {
-      addField(data);
-      showToast('Novo talhão cadastrado com sucesso!');
+      addField({
+        name, cropYear, culture, soilType: soilType || 'Argiloso', status,
+        area: 0, expectedYield: 0, actualYield: undefined, productionCostHa: 0, revenueHa: 0,
+      });
+      showToast('Novo talhão cadastrado! Desenhe o perímetro no mapa para calcular a área.');
     }
     resetForm();
     setShowAddForm(false);
@@ -59,9 +49,7 @@ export const ProductionModule: React.FC = () => {
 
   const handleEdit = (f: typeof fields[0]) => {
     setEditingUuid(f.uuid); setName(f.name); setCropYear(f.cropYear); setCulture(f.culture);
-    setArea(String(f.area)); setSoilType(f.soilType); setExpectedYield(String(f.expectedYield));
-    setActualYield(f.actualYield ? String(f.actualYield) : '');
-    setCostHa(String(f.productionCostHa)); setRevHa(String(f.revenueHa)); setStatus(f.status);
+    setSoilType(f.soilType); setStatus(f.status);
     setShowAddForm(true);
   };
 
@@ -131,14 +119,12 @@ export const ProductionModule: React.FC = () => {
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Nome do Talhão</label><input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Talhão 06" className={inputClass} /></div>
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Safra</label><input type="text" required value={cropYear} onChange={(e) => setCropYear(e.target.value)} placeholder="2025/26" className={inputClass} /></div>
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Cultura</label><select value={culture} onChange={(e) => setCulture(e.target.value)} className={inputClass}><option value="Soja">Soja</option><option value="Milho">Milho</option><option value="Algodão">Algodão</option></select></div>
-          <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Área (ha)</label><input type="number" required value={area} onChange={(e) => setArea(e.target.value)} placeholder="0" className={inputClass} /></div>
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Tipo de Solo</label><input type="text" value={soilType} onChange={(e) => setSoilType(e.target.value)} placeholder="Argiloso" className={inputClass} /></div>
-          <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Meta Sacas/ha</label><input type="number" value={expectedYield} onChange={(e) => setExpectedYield(e.target.value)} placeholder="70" className={inputClass} /></div>
-          <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Real Sacas/ha</label><input type="number" value={actualYield} onChange={(e) => setActualYield(e.target.value)} placeholder="72" className={inputClass} /></div>
-          <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Custo Prod/ha (R$)</label><input type="number" required value={costHa} onChange={(e) => setCostHa(e.target.value)} placeholder="0.00" className={inputClass} /></div>
-          <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Fat. Estimado/ha (R$)</label><input type="number" value={revHa} onChange={(e) => setRevHa(e.target.value)} placeholder="0.00" className={inputClass} /></div>
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Status</label><select value={status} onChange={(e) => setStatus(e.target.value)} className={inputClass}><option value="Plantado">Plantado</option><option value="Colhido">Colhido</option><option value="Preparando Solo">Preparando Solo</option></select></div>
-          <div className="flex items-end md:col-span-5"><button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors ml-auto">{editingUuid ? 'Atualizar Talhão' : 'Salvar Talhão'}</button></div>
+          <div className="flex items-end md:col-span-5">
+            <p className="text-3xs text-slate-400 mr-auto self-center">A área (ha) é calculada automaticamente ao desenhar o perímetro no mapa.</p>
+            <button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors">{editingUuid ? 'Atualizar Talhão' : 'Salvar Talhão'}</button>
+          </div>
         </form>
       )}
 
