@@ -79,6 +79,7 @@ export interface CropField {
   productionCostHa: number;
   revenueHa: number;
   status: string;
+  boundary?: [number, number][] | null; // perímetro do talhão: pares [lat, lng]
 }
 
 export interface Machine {
@@ -368,6 +369,7 @@ function fieldFromRow(row: CropFieldRow): CropField {
     productionCostHa: row.production_cost_ha !== null ? Number(row.production_cost_ha) : 0,
     revenueHa: row.revenue_ha !== null ? Number(row.revenue_ha) : 0,
     status: row.status,
+    boundary: row.boundary ?? null,
   };
 }
 
@@ -789,6 +791,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       production_cost_ha: f.productionCostHa,
       revenue_ha: f.revenueHa,
       status: f.status,
+      boundary: f.boundary ?? null,
     };
     supabase.from('crop_fields').insert(row).select().single().then(({ data, error }) => {
       if (error || !data) { console.error('Erro ao criar talhão:', error); return; }
@@ -809,6 +812,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.productionCostHa !== undefined) patch.production_cost_ha = data.productionCostHa;
     if (data.revenueHa !== undefined) patch.revenue_ha = data.revenueHa;
     if (data.status !== undefined) patch.status = data.status;
+    if (data.boundary !== undefined) patch.boundary = data.boundary;
     supabase.from('crop_fields').update(patch).eq('id', uuid).then(({ error }) => {
       if (error) console.error('Erro ao atualizar talhão:', error);
     });

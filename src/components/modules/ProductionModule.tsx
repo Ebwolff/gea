@@ -1,16 +1,22 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Sprout, TrendingUp, DollarSign, BarChart3, Pencil, Trash2, Search } from 'lucide-react';
+import { Sprout, TrendingUp, DollarSign, BarChart3, Pencil, Trash2, Search, MapPin, Map as MapIcon } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { useToast } from '../Toast';
+import { FieldMap } from '../FieldMap';
+
+const BRAZIL_CENTER: [number, number] = [-15.7801, -47.9292];
 
 export const ProductionModule: React.FC = () => {
-  const { fields, addField, updateField, removeField, cropFilter } = useApp();
+  const { fields, addField, updateField, removeField, cropFilter, farms, farmFilter } = useApp();
   const { showToast } = useToast();
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingUuid, setEditingUuid] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showMap, setShowMap] = useState(false);
+  const [editingBoundaryUuid, setEditingBoundaryUuid] = useState<string | null>(null);
+  const mapPanelRef = useRef<HTMLDivElement | null>(null);
 
   const [name, setName] = useState('');
   const [cropYear, setCropYear] = useState('2025/26');
@@ -63,8 +69,29 @@ export const ProductionModule: React.FC = () => {
     if (confirm(`Excluir talhão "${n}"?`)) { removeField(uuid); showToast('Talhão excluído.', 'error'); }
   };
 
+  const handleMarkOnMap = (uuid: string) => {
+    setShowMap(true);
+    setEditingBoundaryUuid(uuid);
+    setTimeout(() => mapPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
+
+  const handleBoundaryChange = (uuid: string, boundary: [number, number][] | null, areaHa: number) => {
+    if (boundary) {
+      updateField(uuid, areaHa > 0 ? { boundary, area: areaHa } : { boundary });
+      showToast(areaHa > 0 ? `Perímetro salvo! Área calculada: ${areaHa} ha` : 'Perímetro salvo!');
+    } else {
+      updateField(uuid, { boundary: null });
+      showToast('Perímetro removido.', 'error');
+    }
+  };
+
+  const selectedFarm = farms.find(fm => fm.name === farmFilter);
+  const mapCenter: [number, number] = selectedFarm?.latitude && selectedFarm?.longitude
+    ? [selectedFarm.latitude, selectedFarm.longitude]
+    : BRAZIL_CENTER;
+
   const filteredFields = fields.filter(f => {
-    const matchesCrop = cropFilter === 'Todas' || f.culture === cropFilter;
+    const matchesCrop = f.cropYear === cropFilter;
     const matchesSearch = f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       f.culture.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCrop && matchesSearch;
@@ -85,10 +112,17 @@ export const ProductionModule: React.FC = () => {
           <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white font-display">Acompanhamento de Safra e Produção</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">Monitore o plantio, colheita, produtividade de sacas por hectare e custos operacionais por talhão.</p>
         </div>
-        <button onClick={() => { setShowAddForm(!showAddForm); if (showAddForm) resetForm(); }}
-          className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors self-start md:self-auto">
-          {showAddForm ? 'Fechar Formulário' : 'Novo Talhão'}
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          <button onClick={() => setShowMap(!showMap)}
+            className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors">
+            <MapIcon size={14} />
+            {showMap ? 'Ocultar Mapa' : 'Ver Mapa'}
+          </button>
+          <button onClick={() => { setShowAddForm(!showAddForm); if (showAddForm) resetForm(); }}
+            className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors">
+            {showAddForm ? 'Fechar Formulário' : 'Novo Talhão'}
+          </button>
+        </div>
       </div>
 
       {/* Formulário */}
@@ -106,6 +140,37 @@ export const ProductionModule: React.FC = () => {
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Status</label><select value={status} onChange={(e) => setStatus(e.target.value)} className={inputClass}><option value="Plantado">Plantado</option><option value="Colhido">Colhido</option><option value="Preparando Solo">Preparando Solo</option></select></div>
           <div className="flex items-end md:col-span-5"><button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors ml-auto">{editingUuid ? 'Atualizar Talhão' : 'Salvar Talhão'}</button></div>
         </form>
+      )}
+
+      {/* Mapa de Talhões */}
+      {showMap && (
+        <div ref={mapPanelRef} className="glass-panel rounded-xl overflow-hidden animate-fade-in">
+          <div className="p-4 border-b border-slate-200/50 dark:border-dark-border/50 bg-slate-50/40 dark:bg-slate-900/30 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5"><MapIcon size={14} className="text-brand-600" /> Mapa de Talhões</h3>
+              <p className="text-3xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Selecione um talhão e use a ferramenta de polígono (canto superior esquerdo do mapa) para desenhar o perímetro. A área em hectares é calculada automaticamente.
+              </p>
+            </div>
+            <select
+              value={editingBoundaryUuid ?? ''}
+              onChange={(e) => setEditingBoundaryUuid(e.target.value || null)}
+              className={inputClass + ' md:w-64'}
+            >
+              <option value="">— Apenas visualizar —</option>
+              {fields.map(f => (
+                <option key={f.uuid} value={f.uuid}>{f.name} {f.boundary ? '(perímetro definido)' : '(sem perímetro)'}</option>
+              ))}
+            </select>
+          </div>
+          <FieldMap
+            fields={fields}
+            center={mapCenter}
+            editingFieldUuid={editingBoundaryUuid}
+            onBoundaryChange={handleBoundaryChange}
+            onSelectField={(uuid) => setEditingBoundaryUuid(uuid)}
+          />
+        </div>
       )}
 
       {/* Grid Resumo */}
@@ -131,7 +196,7 @@ export const ProductionModule: React.FC = () => {
       {/* Tabela */}
       <div className="glass-panel rounded-xl overflow-hidden">
         <div className="p-4 border-b border-slate-200/50 dark:border-dark-border/50 bg-slate-50/40 dark:bg-slate-900/30 flex items-center justify-between gap-3">
-          <h3 className="text-xs font-bold text-slate-800 dark:text-white">Mapa de Talhões</h3>
+          <h3 className="text-xs font-bold text-slate-800 dark:text-white">Lista de Talhões</h3>
           <div className="relative w-64">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Buscar talhão..." className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-dark-border rounded-lg text-xs py-1.5 pl-8 pr-3 focus:outline-none focus:ring-1 focus:ring-brand-500 text-slate-800 dark:text-slate-100" />
@@ -157,6 +222,7 @@ export const ProductionModule: React.FC = () => {
                   <td className="py-3.5 px-4 text-center"><span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 text-3xs font-bold">{f.status}</span></td>
                   <td className="py-3.5 px-4 text-center">
                     <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => handleMarkOnMap(f.uuid)} className={`p-1.5 rounded-lg transition-colors ${f.boundary ? 'text-emerald-600 hover:bg-emerald-500/10' : 'text-slate-400 hover:bg-slate-500/10'}`} title={f.boundary ? 'Editar perímetro no mapa' : 'Marcar perímetro no mapa'}><MapPin size={13} /></button>
                       <button onClick={() => handleEdit(f)} className="p-1.5 rounded-lg hover:bg-blue-500/10 text-blue-500 transition-colors" title="Editar"><Pencil size={13} /></button>
                       <button onClick={() => handleDelete(f.uuid, f.name)} className="p-1.5 rounded-lg hover:bg-rose-500/10 text-rose-500 transition-colors" title="Excluir"><Trash2 size={13} /></button>
                     </div>

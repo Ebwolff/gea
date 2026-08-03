@@ -68,6 +68,7 @@ export interface CropFieldRow {
   production_cost_ha: number | null;
   revenue_ha: number | null;
   status: string;
+  boundary: [number, number][] | null;
   created_at: string;
 }
 
