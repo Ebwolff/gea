@@ -5,7 +5,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cart
 import { useToast } from '../Toast';
 import { FieldMap } from '../FieldMap';
 
-const BRAZIL_CENTER: [number, number] = [-15.7801, -47.9292];
+const DEFAULT_MAP_CENTER: [number, number] = [-7.5325, -46.0356]; // Balsas - MA
 
 export const ProductionModule: React.FC = () => {
   const { fields, addField, updateField, removeField, cropFilter, farms, farmFilter } = useApp();
@@ -88,7 +88,7 @@ export const ProductionModule: React.FC = () => {
   const selectedFarm = farms.find(fm => fm.name === farmFilter);
   const mapCenter: [number, number] = selectedFarm?.latitude && selectedFarm?.longitude
     ? [selectedFarm.latitude, selectedFarm.longitude]
-    : BRAZIL_CENTER;
+    : DEFAULT_MAP_CENTER;
 
   const filteredFields = fields.filter(f => {
     const matchesCrop = f.cropYear === cropFilter;
