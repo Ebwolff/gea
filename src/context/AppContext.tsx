@@ -16,6 +16,7 @@ import type {
   ImplementRow,
   DocumentRow,
   InvoiceRow,
+  SefazSyncStateRow,
 } from '../lib/database.types';
 
 // Interfaces
@@ -180,6 +181,7 @@ export interface Supplier {
 export interface Client {
   uuid: string;
   name: string;
+  cnpj: string; // usado para casar as NF-e importadas da SEFAZ com o cliente
   pickupLocation: string;
   contractedVolume: number;
   volumeUnit: string;
@@ -209,14 +211,29 @@ export interface AppDocument {
 
 // Nota fiscal emitida para um cliente: arquivo real (PDF/XML) no Supabase
 // Storage (bucket "invoices"), diferente de AppDocument que é só metadados.
+// Pode vir de upload manual ("manual") ou de sincronização automática com a
+// SEFAZ ("sefaz" = XML completo, "sefaz-resumo" = só metadados, sem arquivo).
 export interface Invoice {
   uuid: string;
-  clientUuid: string;
+  clientUuid: string | null;
   number: string;
   issueDate: string;
   value: number;
-  filePath: string;
+  filePath: string | null;
   fileName: string;
+  accessKey?: string;
+  source: 'manual' | 'sefaz' | 'sefaz-resumo';
+  issuerName?: string;
+  issuerDoc?: string;
+  destName?: string;
+  destDoc?: string;
+}
+
+export interface SefazSyncState {
+  ultNsu: string;
+  lastSyncAt: string | null;
+  lastStatus: string | null;
+  lastMessage: string | null;
 }
 
 interface AppContextType {
@@ -313,6 +330,9 @@ interface AppContextType {
   addInvoice: (clientUuid: string, number: string, issueDate: string, value: number, file: File) => Promise<void>;
   removeInvoice: (uuid: string) => void;
   getInvoiceDownloadUrl: (filePath: string) => Promise<string>;
+  linkInvoiceToClient: (uuid: string, clientUuid: string) => void;
+  sefazSyncState: SefazSyncState | null;
+  syncSefazInvoices: () => Promise<{ error?: string; [k: string]: unknown }>;
 
   chatMessages: ChatMessage[];
   sendChatMessage: (msg: string) => void;
@@ -461,6 +481,7 @@ function clientFromRow(row: ClientRow): Client {
   return {
     uuid: row.id,
     name: row.name,
+    cnpj: row.cnpj ?? '',
     pickupLocation: row.pickup_location ?? '',
     contractedVolume: row.contracted_volume !== null ? Number(row.contracted_volume) : 0,
     volumeUnit: row.volume_unit ?? '',
@@ -500,6 +521,21 @@ function invoiceFromRow(row: InvoiceRow): Invoice {
     value: row.value !== null ? Number(row.value) : 0,
     filePath: row.file_path,
     fileName: row.file_name,
+    accessKey: row.access_key ?? undefined,
+    source: (row.source as Invoice['source']) ?? 'manual',
+    issuerName: row.issuer_name ?? undefined,
+    issuerDoc: row.issuer_doc ?? undefined,
+    destName: row.dest_name ?? undefined,
+    destDoc: row.dest_doc ?? undefined,
+  };
+}
+
+function sefazSyncStateFromRow(row: SefazSyncStateRow): SefazSyncState {
+  return {
+    ultNsu: row.ult_nsu,
+    lastSyncAt: row.last_sync_at,
+    lastStatus: row.last_status,
+    lastMessage: row.last_message,
   };
 }
 
@@ -591,6 +627,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [implementsList, setImplementsList] = useState<Implement[]>([]);
   const [documents, setDocuments] = useState<AppDocument[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [sefazSyncState, setSefazSyncState] = useState<SefazSyncState | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   // Carga inicial: busca todas as tabelas do Supabase em paralelo.
@@ -601,7 +638,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const [
         farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes,
         stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes,
-        suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes,
+        suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes, sefazStateRes,
       ] = await Promise.all([
         supabase.from('properties').select('*').order('created_at'),
         supabase.from('diagnosis_questions').select('*').order('id'),
@@ -619,11 +656,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('implements').select('*').order('created_at'),
         supabase.from('documents').select('*').order('created_at'),
         supabase.from('invoices').select('*').order('created_at'),
+        supabase.from('sefaz_sync_state').select('*').eq('id', true).maybeSingle(),
       ]);
 
       if (cancelled) return;
 
-      const results = { farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes, stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes, suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes };
+      const results = { farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes, stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes, suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes, sefazStateRes };
       for (const [label, res] of Object.entries(results)) {
         if (res.error) console.error(`Erro ao carregar "${label}" do Supabase:`, res.error);
       }
@@ -645,6 +683,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setImplementsList((implementsRes.data ?? []).map(implementFromRow));
       setDocuments((documentsRes.data ?? []).map(documentFromRow));
       setInvoices((invoicesRes.data ?? []).map(invoiceFromRow));
+      if (sefazStateRes.data) setSefazSyncState(sefazSyncStateFromRow(sefazStateRes.data));
 
       const loadedChat = (chatRes.data ?? []).map(chatMessageFromRow);
       if (loadedChat.length === 0) {
@@ -1021,7 +1060,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Clientes
   const addClient = (c: Omit<Client, 'uuid'>) => {
     const row = {
-      name: c.name, pickup_location: c.pickupLocation, contracted_volume: c.contractedVolume,
+      name: c.name, cnpj: c.cnpj, pickup_location: c.pickupLocation, contracted_volume: c.contractedVolume,
       volume_unit: c.volumeUnit, avg_price: c.avgPrice, price_unit: c.priceUnit, contract_status: c.contractStatus,
     };
     supabase.from('clients').insert(row).select().single().then(({ data, error }) => {
@@ -1034,6 +1073,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setClients(prev => prev.map(c => c.uuid === uuid ? { ...c, ...data } : c));
     const patch: Record<string, unknown> = {};
     if (data.name !== undefined) patch.name = data.name;
+    if (data.cnpj !== undefined) patch.cnpj = data.cnpj;
     if (data.pickupLocation !== undefined) patch.pickup_location = data.pickupLocation;
     if (data.contractedVolume !== undefined) patch.contracted_volume = data.contractedVolume;
     if (data.volumeUnit !== undefined) patch.volume_unit = data.volumeUnit;
@@ -1127,7 +1167,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     supabase.from('invoices').delete().eq('id', uuid).then(({ error }) => {
       if (error) console.error('Erro ao excluir nota fiscal:', error);
     });
-    if (inv) {
+    if (inv?.filePath) {
       supabase.storage.from('invoices').remove([inv.filePath]).then(({ error }) => {
         if (error) console.error('Erro ao excluir arquivo da nota fiscal:', error);
       });
@@ -1138,6 +1178,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const { data, error } = await supabase.storage.from('invoices').createSignedUrl(filePath, 120);
     if (error || !data) throw error ?? new Error('Falha ao gerar link de download');
     return data.signedUrl;
+  };
+
+  const linkInvoiceToClient = (uuid: string, clientUuid: string) => {
+    setInvoices(prev => prev.map(i => i.uuid === uuid ? { ...i, clientUuid } : i));
+    supabase.from('invoices').update({ client_id: clientUuid }).eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao vincular nota fiscal ao cliente:', error);
+    });
+  };
+
+  // Dispara a Edge Function que busca notas fiscais direto na SEFAZ
+  // (Distribuição DFe) e recarrega invoices/clients/sefazSyncState em seguida.
+  const syncSefazInvoices = async (): Promise<{ error?: string; [k: string]: unknown }> => {
+    const { data, error } = await supabase.functions.invoke('sefaz-sync-invoices', { method: 'POST' });
+    if (error) {
+      console.error('Erro ao sincronizar com a SEFAZ:', error);
+      return { error: error.message ?? 'Falha ao chamar a função de sincronização.' };
+    }
+    const [invoicesRes, stateRes] = await Promise.all([
+      supabase.from('invoices').select('*').order('created_at'),
+      supabase.from('sefaz_sync_state').select('*').eq('id', true).maybeSingle(),
+    ]);
+    if (invoicesRes.data) setInvoices(invoicesRes.data.map(invoiceFromRow));
+    if (stateRes.data) setSefazSyncState(sefazSyncStateFromRow(stateRes.data));
+    return data ?? {};
   };
 
   const addFarm = (f: Omit<Property, 'uuid' | 'status'>) => {
@@ -1551,7 +1615,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       documents,
       addDocument, updateDocument, removeDocument,
       invoices,
-      addInvoice, removeInvoice, getInvoiceDownloadUrl,
+      addInvoice, removeInvoice, getInvoiceDownloadUrl, linkInvoiceToClient,
+      sefazSyncState, syncSefazInvoices,
       chatMessages,
       sendChatMessage,
       clearChat

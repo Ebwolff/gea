@@ -203,17 +203,23 @@ export const SuppliersModule: React.FC = () => {
 // Clientes
 // ============================================================
 export const ClientsModule: React.FC = () => {
-  const { clients, addClient, updateClient, removeClient, invoices, addInvoice, removeInvoice, getInvoiceDownloadUrl } = useApp();
+  const {
+    clients, addClient, updateClient, removeClient,
+    invoices, addInvoice, removeInvoice, getInvoiceDownloadUrl, linkInvoiceToClient,
+    sefazSyncState, syncSefazInvoices,
+  } = useApp();
   const { showToast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editingUuid, setEditingUuid] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [cnpj, setCnpj] = useState('');
   const [pickupLocation, setPickupLocation] = useState('');
   const [contractedVolume, setContractedVolume] = useState('');
   const [volumeUnit, setVolumeUnit] = useState('Sacas (Soja)');
   const [avgPrice, setAvgPrice] = useState('');
   const [priceUnit, setPriceUnit] = useState('/ Saca');
   const [contractStatus, setContractStatus] = useState('Fixado');
+  const [syncing, setSyncing] = useState(false);
 
   const [invoicesClientUuid, setInvoicesClientUuid] = useState<string | null>(null);
   const [invNumber, setInvNumber] = useState('');
@@ -225,23 +231,39 @@ export const ClientsModule: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetForm = () => {
-    setName(''); setPickupLocation(''); setContractedVolume(''); setVolumeUnit('Sacas (Soja)');
+    setName(''); setCnpj(''); setPickupLocation(''); setContractedVolume(''); setVolumeUnit('Sacas (Soja)');
     setAvgPrice(''); setPriceUnit('/ Saca'); setContractStatus('Fixado'); setEditingUuid(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name) return;
-    const data = { name, pickupLocation, contractedVolume: parseFloat(contractedVolume) || 0, volumeUnit, avgPrice: parseFloat(avgPrice) || 0, priceUnit, contractStatus };
+    const data = { name, cnpj, pickupLocation, contractedVolume: parseFloat(contractedVolume) || 0, volumeUnit, avgPrice: parseFloat(avgPrice) || 0, priceUnit, contractStatus };
     if (editingUuid) { updateClient(editingUuid, data); showToast('Cliente atualizado!'); }
     else { addClient(data); showToast('Novo cliente cadastrado!'); }
     resetForm(); setShowForm(false);
   };
 
   const handleEdit = (c: typeof clients[0]) => {
-    setEditingUuid(c.uuid); setName(c.name); setPickupLocation(c.pickupLocation); setContractedVolume(String(c.contractedVolume));
+    setEditingUuid(c.uuid); setName(c.name); setCnpj(c.cnpj); setPickupLocation(c.pickupLocation); setContractedVolume(String(c.contractedVolume));
     setVolumeUnit(c.volumeUnit); setAvgPrice(String(c.avgPrice)); setPriceUnit(c.priceUnit); setContractStatus(c.contractStatus);
     setShowForm(true);
+  };
+
+  const handleSyncSefaz = async () => {
+    setSyncing(true);
+    try {
+      const result = await syncSefazInvoices();
+      if (result.error) {
+        showToast('Erro na sincronização: ' + result.error, 'error');
+      } else {
+        showToast(`Sincronizado! ${result.totalInvoicesCreated ?? 0} nota(s) nova(s) encontrada(s).`);
+      }
+    } catch {
+      showToast('Erro ao sincronizar com a SEFAZ.', 'error');
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const handleDelete = (uuid: string, n: string) => {
@@ -274,7 +296,8 @@ export const ClientsModule: React.FC = () => {
     }
   };
 
-  const handleDownloadInvoice = async (filePath: string) => {
+  const handleDownloadInvoice = async (filePath: string | null) => {
+    if (!filePath) { showToast('Esta nota só tem o resumo da SEFAZ, sem XML completo para baixar ainda.', 'error'); return; }
     try {
       const url = await getInvoiceDownloadUrl(filePath);
       window.open(url, '_blank');
@@ -287,25 +310,44 @@ export const ClientsModule: React.FC = () => {
     if (confirm(`Excluir a nota fiscal "${fileName}"?`)) { removeInvoice(uuid); showToast('Nota fiscal excluída.', 'error'); }
   };
 
+  const handleLinkInvoice = (uuid: string, clientUuid: string) => {
+    if (!clientUuid) return;
+    linkInvoiceToClient(uuid, clientUuid);
+    showToast('Nota fiscal vinculada ao cliente!');
+  };
+
   const clientInvoices = invoices.filter(i => i.clientUuid === invoicesClientUuid);
   const invoicesClient = clients.find(c => c.uuid === invoicesClientUuid);
+  const unlinkedInvoices = invoices.filter(i => !i.clientUuid && i.source !== 'manual');
 
   return (
     <div className="glass-panel p-6 rounded-xl space-y-4 animate-fade-in">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <h2 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
           <UserCheck size={18} className="text-brand-600" />
           Carteira de Clientes e Tradings
         </h2>
-        <button onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }} className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors">
-          {showForm ? 'Fechar' : (<><Plus size={14} /> Novo Cliente</>)}
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={handleSyncSefaz} disabled={syncing} className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors">
+            <Receipt size={14} /> {syncing ? 'Sincronizando...' : 'Sincronizar com SEFAZ'}
+          </button>
+          <button onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }} className="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors">
+            {showForm ? 'Fechar' : (<><Plus size={14} /> Novo Cliente</>)}
+          </button>
+        </div>
       </div>
       <p className="text-xs text-slate-500">Gerencie compradores de grãos chaves, contratos de venda futuros e liquidação física.</p>
+      {sefazSyncState && (
+        <p className="text-4xs text-slate-400">
+          Última sincronização SEFAZ: {sefazSyncState.lastSyncAt ? new Date(sefazSyncState.lastSyncAt).toLocaleString('pt-BR') : 'nunca'}
+          {sefazSyncState.lastMessage ? ` — ${sefazSyncState.lastMessage}` : ''}
+        </p>
+      )}
 
       {showForm && (
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-6 gap-3 p-4 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-dark-border animate-fade-in">
           <div className="md:col-span-2"><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Cliente / Trading</label><input required value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Cargill Alimentos S/A" className={inputClass} /></div>
+          <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">CNPJ</label><input value={cnpj} onChange={e => setCnpj(e.target.value)} placeholder="00.000.000/0001-00" className={inputClass} /></div>
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Local de Retirada</label><input value={pickupLocation} onChange={e => setPickupLocation(e.target.value)} placeholder="Terminal Rondonópolis (FOB)" className={inputClass} /></div>
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Volume Contratado</label><input type="number" value={contractedVolume} onChange={e => setContractedVolume(e.target.value)} placeholder="25000" className={inputClass} /></div>
           <div><label className="text-3xs font-bold text-slate-400 uppercase mb-1 block">Unidade</label><input value={volumeUnit} onChange={e => setVolumeUnit(e.target.value)} placeholder="Sacas (Soja)" className={inputClass} /></div>
@@ -320,6 +362,7 @@ export const ClientsModule: React.FC = () => {
           <thead>
             <tr className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-dark-border text-slate-400 font-bold uppercase tracking-wider text-4xs">
               <th className="py-2 px-3">Cliente / Trading</th>
+              <th className="py-2 px-3">CNPJ</th>
               <th className="py-2 px-3">Local de Retirada</th>
               <th className="py-2 px-3 text-center">Volume Contratado</th>
               <th className="py-2 px-3 text-center">Preço Médio Acordado</th>
@@ -331,6 +374,7 @@ export const ClientsModule: React.FC = () => {
             {clients.map(c => (
               <tr key={c.uuid}>
                 <td className="py-2 px-3 font-semibold text-slate-700 dark:text-slate-200">{c.name}</td>
+                <td className="py-2 px-3 text-slate-500">{c.cnpj || '-'}</td>
                 <td className="py-2 px-3 text-slate-500">{c.pickupLocation}</td>
                 <td className="py-2 px-3 text-center">{c.contractedVolume.toLocaleString('pt-BR')} {c.volumeUnit}</td>
                 <td className="py-2 px-3 text-center">R$ {c.avgPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} {c.priceUnit}</td>
@@ -379,22 +423,57 @@ export const ClientsModule: React.FC = () => {
                   <div className="min-w-0 flex items-center gap-2">
                     <FileText size={14} className="text-brand-600 flex-shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-3xs font-bold text-slate-700 dark:text-slate-200 truncate">{inv.fileName}</p>
+                      <p className="text-3xs font-bold text-slate-700 dark:text-slate-200 truncate flex items-center gap-1.5">
+                        {inv.fileName}
+                        {inv.source !== 'manual' && <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 text-4xs font-bold flex-shrink-0">SEFAZ</span>}
+                      </p>
                       <p className="text-4xs text-slate-400">
                         {inv.number ? `NF ${inv.number}` : 'Sem número'}
                         {inv.issueDate ? ` • ${inv.issueDate}` : ''}
                         {inv.value ? ` • R$ ${inv.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
+                        {!inv.filePath ? ' • só resumo (sem XML completo)' : ''}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    <button onClick={() => handleDownloadInvoice(inv.filePath)} className="p-1.5 rounded hover:bg-brand-500/10 text-brand-600" title="Baixar"><Download size={13} /></button>
+                    <button onClick={() => handleDownloadInvoice(inv.filePath)} className="p-1.5 rounded hover:bg-brand-500/10 text-brand-600 disabled:opacity-30" disabled={!inv.filePath} title="Baixar"><Download size={13} /></button>
                     <button onClick={() => handleDeleteInvoice(inv.uuid, inv.fileName)} className="p-1.5 rounded hover:bg-rose-500/10 text-rose-500" title="Excluir"><Trash2 size={13} /></button>
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {unlinkedInvoices.length > 0 && (
+        <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20 space-y-3 animate-fade-in">
+          <h3 className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-2">
+            <Receipt size={15} />
+            Notas Fiscais da SEFAZ sem cliente vinculado ({unlinkedInvoices.length})
+          </h3>
+          <p className="text-3xs text-slate-500">O CNPJ do destinatário não bate com nenhum cliente cadastrado. Escolha o cliente correto para vincular.</p>
+          <div className="space-y-2">
+            {unlinkedInvoices.map(inv => (
+              <div key={inv.uuid} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-dark-border">
+                <div className="min-w-0">
+                  <p className="text-3xs font-bold text-slate-700 dark:text-slate-200 truncate">{inv.destName || inv.fileName}</p>
+                  <p className="text-4xs text-slate-400">
+                    CNPJ dest: {inv.destDoc || '—'}
+                    {inv.value ? ` • R$ ${inv.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
+                    {inv.issueDate ? ` • ${inv.issueDate}` : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <select onChange={e => handleLinkInvoice(inv.uuid, e.target.value)} defaultValue="" className={inputClass + ' w-48'}>
+                    <option value="" disabled>Vincular a...</option>
+                    {clients.map(c => <option key={c.uuid} value={c.uuid}>{c.name}</option>)}
+                  </select>
+                  <button onClick={() => handleDeleteInvoice(inv.uuid, inv.fileName)} className="p-1.5 rounded hover:bg-rose-500/10 text-rose-500" title="Excluir"><Trash2 size={13} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -158,6 +158,7 @@ export interface SupplierRow {
 export interface ClientRow {
   id: string;
   name: string;
+  cnpj: string | null;
   pickup_location: string | null;
   contracted_volume: number | null;
   volume_unit: string | null;
@@ -188,11 +189,25 @@ export interface DocumentRow {
 
 export interface InvoiceRow {
   id: string;
-  client_id: string;
+  client_id: string | null;
   number: string | null;
   issue_date: string | null;
   value: number | null;
-  file_path: string;
+  file_path: string | null;
   file_name: string;
+  access_key: string | null;
+  source: string;
+  issuer_name: string | null;
+  issuer_doc: string | null;
+  dest_name: string | null;
+  dest_doc: string | null;
   created_at: string;
+}
+
+export interface SefazSyncStateRow {
+  id: boolean;
+  ult_nsu: string;
+  last_sync_at: string | null;
+  last_status: string | null;
+  last_message: string | null;
 }
