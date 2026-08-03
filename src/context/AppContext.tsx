@@ -236,6 +236,17 @@ export interface SefazSyncState {
   lastMessage: string | null;
 }
 
+// Nunca inclui o certificado/chave em si — só o que é seguro mostrar na
+// tela (o certificado fica numa tabela que nenhum usuário logado lê).
+export interface SefazCertificateStatus {
+  configured: boolean;
+  docType: string | null;
+  docNumberMasked: string | null;
+  ufCode: string | null;
+  ambiente: string | null;
+  uploadedAt: string | null;
+}
+
 interface AppContextType {
   loading: boolean;
 
@@ -333,6 +344,9 @@ interface AppContextType {
   linkInvoiceToClient: (uuid: string, clientUuid: string) => void;
   sefazSyncState: SefazSyncState | null;
   syncSefazInvoices: () => Promise<{ error?: string; [k: string]: unknown }>;
+  sefazCertStatus: SefazCertificateStatus | null;
+  refreshSefazCertStatus: () => Promise<void>;
+  uploadSefazCertificate: (opts: { file: File; password: string; docType: 'cpf' | 'cnpj'; docNumber: string; ufCode: string; ambiente: '1' | '2' }) => Promise<{ error?: string }>;
 
   chatMessages: ChatMessage[];
   sendChatMessage: (msg: string) => void;
@@ -628,6 +642,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [documents, setDocuments] = useState<AppDocument[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [sefazSyncState, setSefazSyncState] = useState<SefazSyncState | null>(null);
+  const [sefazCertStatus, setSefazCertStatus] = useState<SefazCertificateStatus | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   // Carga inicial: busca todas as tabelas do Supabase em paralelo.
@@ -1204,6 +1219,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return data ?? {};
   };
 
+  const refreshSefazCertStatus = async () => {
+    const { data, error } = await supabase.rpc('sefaz_certificate_status').maybeSingle<{
+      configured: boolean; doc_type: string | null; doc_number_masked: string | null;
+      uf_code: string | null; ambiente: string | null; uploaded_at: string | null;
+    }>();
+    if (error) { console.error('Erro ao consultar status do certificado SEFAZ:', error); return; }
+    if (data) {
+      setSefazCertStatus({
+        configured: !!data.configured,
+        docType: data.doc_type,
+        docNumberMasked: data.doc_number_masked,
+        ufCode: data.uf_code,
+        ambiente: data.ambiente,
+        uploadedAt: data.uploaded_at,
+      });
+    }
+  };
+
+  const fileToBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1] ?? ''); // remove o prefixo "data:...;base64,"
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const uploadSefazCertificate = async (opts: { file: File; password: string; docType: 'cpf' | 'cnpj'; docNumber: string; ufCode: string; ambiente: '1' | '2' }): Promise<{ error?: string }> => {
+    try {
+      const pfxBase64 = await fileToBase64(opts.file);
+      const { data, error } = await supabase.functions.invoke('sefaz-save-certificate', {
+        method: 'POST',
+        body: { pfxBase64, password: opts.password, docType: opts.docType, docNumber: opts.docNumber, ufCode: opts.ufCode, ambiente: opts.ambiente },
+      });
+      if (error) return { error: error.message ?? 'Falha ao chamar a função de upload do certificado.' };
+      if (data?.error) return { error: data.error };
+      await refreshSefazCertStatus();
+      return {};
+    } catch (e) {
+      console.error('Erro ao enviar certificado:', e);
+      return { error: 'Falha ao ler ou enviar o arquivo do certificado.' };
+    }
+  };
+
   const addFarm = (f: Omit<Property, 'uuid' | 'status'>) => {
     const row = {
       name: f.name,
@@ -1617,6 +1677,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       invoices,
       addInvoice, removeInvoice, getInvoiceDownloadUrl, linkInvoiceToClient,
       sefazSyncState, syncSefazInvoices,
+      sefazCertStatus, refreshSefazCertStatus, uploadSefazCertificate,
       chatMessages,
       sendChatMessage,
       clearChat

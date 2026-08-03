@@ -57,16 +57,22 @@ Deno.serve(async (req: Request) => {
     const { data: userData, error: userError } = await callerClient.auth.getUser();
     if (userError || !userData?.user) return json({ error: 'Sessão inválida.' }, 401);
 
-    const certPem = Deno.env.get('SEFAZ_CERT_PEM');
-    const keyPem = Deno.env.get('SEFAZ_KEY_PEM');
-    const cpf = Deno.env.get('SEFAZ_CPF');
-    const cnpj = Deno.env.get('SEFAZ_CNPJ');
-    const ufCode = Deno.env.get('SEFAZ_UF_CODE');
-    const ambiente = (Deno.env.get('SEFAZ_AMBIENTE') ?? '1') as '1' | '2';
+    const db = createClient(supabaseUrl, serviceRoleKey);
 
-    if (!certPem || !keyPem) return json({ error: 'SEFAZ_CERT_PEM / SEFAZ_KEY_PEM não configurados.' }, 500);
-    if (!cpf && !cnpj) return json({ error: 'Configure SEFAZ_CPF ou SEFAZ_CNPJ.' }, 500);
-    if (!ufCode) return json({ error: 'SEFAZ_UF_CODE não configurado.' }, 500);
+    // O certificado é lido da tabela sefaz_certificate (gravada por
+    // sefaz-save-certificate), não de secrets — só o service role consegue
+    // ler essa tabela, por isso é seguro fazer isso aqui.
+    const { data: certRow } = await db.from('sefaz_certificate').select('*').eq('id', true).maybeSingle();
+    const certPem = certRow?.cert_pem;
+    const keyPem = certRow?.key_pem;
+    const cpf = certRow?.doc_type === 'cpf' ? certRow?.doc_number : undefined;
+    const cnpj = certRow?.doc_type === 'cnpj' ? certRow?.doc_number : undefined;
+    const ufCode = certRow?.uf_code;
+    const ambiente = (certRow?.ambiente === '2' ? '2' : '1') as '1' | '2';
+
+    if (!certPem || !keyPem) return json({ error: 'Nenhum certificado configurado ainda. Cadastre em Configurações > Certificado Digital (SEFAZ).' }, 500);
+    if (!cpf && !cnpj) return json({ error: 'CPF/CNPJ do certificado não configurado.' }, 500);
+    if (!ufCode) return json({ error: 'UF do certificado não configurada.' }, 500);
 
     let httpClient: Deno.HttpClient;
     try {
@@ -75,8 +81,6 @@ Deno.serve(async (req: Request) => {
       console.error('Falha ao criar cliente mTLS:', e);
       return json({ error: 'Este ambiente não suporta certificado cliente (mTLS) via Deno.createHttpClient. Falha: ' + String(e) }, 500);
     }
-
-    const db = createClient(supabaseUrl, serviceRoleKey);
 
     const { data: stateRow } = await db.from('sefaz_sync_state').select('*').eq('id', true).single();
     let ultNSU = stateRow?.ult_nsu ?? '000000000000000';
