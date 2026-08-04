@@ -78,7 +78,7 @@ export const IndicatorsModule: React.FC = () => {
         {filteredIndicators.map(ind => {
           let statusColor = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
           let bulletColor = 'bg-emerald-500';
-          
+
           if (ind.status === 'bom') {
             statusColor = 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
             bulletColor = 'bg-blue-500';
@@ -88,10 +88,16 @@ export const IndicatorsModule: React.FC = () => {
           } else if (ind.status === 'critico') {
             statusColor = 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20';
             bulletColor = 'bg-rose-500';
+          } else if (ind.status === 'sem_dado') {
+            statusColor = 'bg-slate-400/10 text-slate-500 dark:text-slate-400 border-slate-400/20';
+            bulletColor = 'bg-slate-400';
           }
 
+          const isSemDado = ind.status === 'sem_dado';
+          const statusLabel = isSemDado ? 'sem dado' : ind.status;
+
           // Percentual de atingimento da meta
-          const pct = ind.target > 0 ? Math.min(100, Math.round((ind.value / ind.target) * 100)) : 100;
+          const pct = isSemDado ? 0 : (ind.target > 0 ? Math.min(100, Math.round((ind.value / ind.target) * 100)) : 100);
 
           return (
             <div 
@@ -105,28 +111,30 @@ export const IndicatorsModule: React.FC = () => {
                   </h4>
                   <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-4xs font-black uppercase ${statusColor}`}>
                     <span className={`w-1 h-1 rounded-full ${bulletColor}`} />
-                    {ind.status}
+                    {statusLabel}
                   </span>
                 </div>
                 <div className="mt-2.5 flex items-baseline gap-1">
                   <span className="text-xl font-black text-slate-800 dark:text-white">
-                    {typeof ind.value === 'number' && ind.value % 1 !== 0 
-                      ? ind.value.toFixed(2) 
-                      : ind.value.toLocaleString('pt-BR')}
+                    {isSemDado
+                      ? '—'
+                      : (typeof ind.value === 'number' && ind.value % 1 !== 0
+                        ? ind.value.toFixed(2)
+                        : ind.value.toLocaleString('pt-BR'))}
                   </span>
-                  <span className="text-3xs text-slate-400 font-semibold">{ind.unit}</span>
+                  <span className="text-3xs text-slate-400 font-semibold">{isSemDado ? 'sem cadastro ainda' : ind.unit}</span>
                 </div>
               </div>
 
               <div>
                 <div className="flex items-center justify-between text-4xs text-slate-400 font-bold mt-2">
                   <span>Meta: {ind.target.toLocaleString('pt-BR')} {ind.unit}</span>
-                  <span>{pct}%</span>
+                  <span>{isSemDado ? '—' : `${pct}%`}</span>
                 </div>
                 <div className="w-full bg-slate-100 dark:bg-slate-800 h-1 rounded-full mt-1 overflow-hidden">
-                  <div 
+                  <div
                     className={`h-full rounded-full ${
-                      ind.status === 'critico' ? 'bg-rose-500' : ind.status === 'alerta' ? 'bg-amber-500' : 'bg-brand-600'
+                      isSemDado ? 'bg-slate-300 dark:bg-slate-700' : ind.status === 'critico' ? 'bg-rose-500' : ind.status === 'alerta' ? 'bg-amber-500' : 'bg-brand-600'
                     }`}
                     style={{ width: `${pct}%` }}
                   />

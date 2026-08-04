@@ -82,14 +82,15 @@ export const DashboardModule: React.FC = () => {
     name, Receita: v.Receita, Custo: v.Custo, Lucro: v.Receita - v.Custo
   }));
 
-  // Dados do radar de diagnóstico
+  // Dados do radar de diagnóstico (só o índice real calculado — sem meta de
+  // grupo, já que o sistema não tem nenhuma fonte real de benchmark/pares).
   const radarData = [
-    { subject: 'Governança', A: indices.governance, B: 75, fullMark: 100 },
-    { subject: 'Financeiro', A: indices.financial, B: 80, fullMark: 100 },
-    { subject: 'Operacional', A: indices.operational, B: 85, fullMark: 100 },
-    { subject: 'Comercial', A: indices.commercial, B: 80, fullMark: 100 },
-    { subject: 'Patrimonial', A: indices.patrimonial, B: 90, fullMark: 100 },
-    { subject: 'Administrativo', A: indices.administrative, B: 85, fullMark: 100 }
+    { subject: 'Governança', A: indices.governance, fullMark: 100 },
+    { subject: 'Financeiro', A: indices.financial, fullMark: 100 },
+    { subject: 'Operacional', A: indices.operational, fullMark: 100 },
+    { subject: 'Comercial', A: indices.commercial, fullMark: 100 },
+    { subject: 'Patrimonial', A: indices.patrimonial, fullMark: 100 },
+    { subject: 'Administrativo', A: indices.administrative, fullMark: 100 }
   ];
 
   const pendingActions = actionPlans.filter(p => p.status !== 'concluido').slice(0, 3);
@@ -107,9 +108,11 @@ export const DashboardModule: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5 border border-emerald-500/20">
-            <Sparkles size={14} className="animate-spin" style={{ animationDuration: '3s' }} />
-            IA Insights: Margem geral saudável de {receitas > 0 ? Math.round((lucroLiquido / receitas) * 100) : 0}%
+          <div className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border ${
+            lucroLiquido >= 0 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
+          }`}>
+            <Sparkles size={14} />
+            Margem líquida atual: {receitas > 0 ? Math.round((lucroLiquido / receitas) * 100) : 0}%
           </div>
         </div>
       </div>
@@ -124,9 +127,7 @@ export const DashboardModule: React.FC = () => {
           </div>
           <div className="mt-2.5">
             <h3 className="text-2xl font-bold text-slate-800 dark:text-white">R$ {receitas.toLocaleString('pt-BR')}</h3>
-            <p className="text-3xs text-emerald-500 font-semibold flex items-center gap-0.5 mt-0.5">
-              <ArrowUpRight size={10} /> +12.4% vs Safra anterior
-            </p>
+            <p className="text-3xs text-slate-400 font-semibold mt-0.5">{filteredTransactions.filter(t => t.type === 'receita').length} lançamento(s)</p>
           </div>
         </div>
 
@@ -138,8 +139,8 @@ export const DashboardModule: React.FC = () => {
           </div>
           <div className="mt-2.5">
             <h3 className="text-2xl font-bold text-slate-800 dark:text-white">R$ {lucroLiquido.toLocaleString('pt-BR')}</h3>
-            <p className="text-3xs text-emerald-500 font-semibold flex items-center gap-0.5 mt-0.5">
-              <ArrowUpRight size={10} /> +8.2% vs Safra anterior
+            <p className={`text-3xs font-semibold flex items-center gap-0.5 mt-0.5 ${lucroLiquido >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+              {lucroLiquido >= 0 ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />} {lucroLiquido >= 0 ? 'Positivo' : 'Negativo'} no período
             </p>
           </div>
         </div>
@@ -147,14 +148,12 @@ export const DashboardModule: React.FC = () => {
         {/* EBITDA */}
         <div className="glass-panel glass-panel-hover p-4 rounded-xl relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">EBITDA</span>
+            <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">EBITDA (estimado)</span>
             <span className="p-1.5 rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400"><Activity size={16} /></span>
           </div>
           <div className="mt-2.5">
             <h3 className="text-2xl font-bold text-slate-800 dark:text-white">R$ {ebitda.toLocaleString('pt-BR')}</h3>
-            <p className="text-3xs text-rose-500 font-semibold flex items-center gap-0.5 mt-0.5">
-              <ArrowDownRight size={10} /> -1.8% vs Orçado (custo diesel)
-            </p>
+            <p className="text-3xs text-slate-400 font-semibold mt-0.5">Aproximação: despesas × 0,85</p>
           </div>
         </div>
 
@@ -262,7 +261,6 @@ export const DashboardModule: React.FC = () => {
                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10 }} />
                 <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 9 }} />
                 <Radar name="Atual" dataKey="A" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
-                <Radar name="Meta do Grupo" dataKey="B" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.05} />
                 <Legend />
               </RadarChart>
             </ResponsiveContainer>
@@ -322,11 +320,6 @@ export const DashboardModule: React.FC = () => {
                 ))
               )}
             </div>
-          </div>
-
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 mt-4 flex items-center justify-between text-2xs">
-            <span className="text-slate-400">Próxima auditoria física:</span>
-            <span className="font-bold text-slate-700 dark:text-slate-200">22/07/2026</span>
           </div>
         </div>
       </div>

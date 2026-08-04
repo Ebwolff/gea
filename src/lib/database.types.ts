@@ -211,3 +211,13 @@ export interface SefazSyncStateRow {
   last_status: string | null;
   last_message: string | null;
 }
+
+export interface StrategicGoalRow {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  target_date: string | null;
+  progress: string;
+  created_at: string;
+}

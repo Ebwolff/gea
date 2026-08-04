@@ -107,6 +107,7 @@ const SefazCertificateCard: React.FC = () => {
 
 export const SettingsModule: React.FC = () => {
   const { profile } = useAuth();
+  const { farms } = useApp();
   const roleLabel = profile ? ROLE_LABELS[profile.role] : '';
 
   return (
@@ -143,8 +144,8 @@ export const SettingsModule: React.FC = () => {
               <span className="font-bold text-brand-600 dark:text-brand-400">{roleLabel}</span>
             </div>
             <div>
-              <span className="text-3xs text-slate-400 font-bold block mb-1">Empresa Agrícola:</span>
-              <span className="font-bold text-slate-700 dark:text-slate-200">Agropecuária Bela Vista Ltda</span>
+              <span className="text-3xs text-slate-400 font-bold block mb-1">Propriedade(s) Cadastrada(s):</span>
+              <span className="font-bold text-slate-700 dark:text-slate-200">{farms.length > 0 ? farms.map(f => f.name).join(', ') : 'Nenhuma propriedade cadastrada'}</span>
             </div>
           </div>
         </div>
@@ -157,16 +158,16 @@ export const SettingsModule: React.FC = () => {
           <div className="text-3xs text-slate-400 space-y-2.5">
             <p>O perfil **{roleLabel}** possui privilégios de edição na maioria dos módulos operacionais, incluindo diagnósticos e planos de ação.</p>
             <div className="flex justify-between border-t border-slate-100 dark:border-slate-800/80 pt-2.5 font-semibold">
-              <span>Auditoria de Logs:</span>
-              <span className="text-emerald-500">Ativa (100%)</span>
+              <span>Autenticação:</span>
+              <span className="text-emerald-500">Supabase Auth</span>
             </div>
             <div className="flex justify-between font-semibold">
-              <span>Soft Delete de Registros:</span>
-              <span className="text-emerald-500">Ativa</span>
+              <span>Row Level Security:</span>
+              <span className="text-emerald-500">Ativo (só usuários autenticados)</span>
             </div>
             <div className="flex justify-between font-semibold">
               <span>Criptografia de Banco:</span>
-              <span className="text-emerald-500">AES-256</span>
+              <span className="text-emerald-500">AES-256 (em repouso, Supabase/Postgres)</span>
             </div>
           </div>
         </div>

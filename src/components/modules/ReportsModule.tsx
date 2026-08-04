@@ -16,14 +16,19 @@ export const ReportsModule: React.FC = () => {
     window.print();
   };
 
-  const [downloading, setDownloading] = useState(false);
+  // Usa o diálogo de impressão do navegador (permite "Salvar como PDF") —
+  // não gera um PDF de verdade no servidor, mas é uma exportação real.
   const handleDownload = () => {
-    setDownloading(true);
-    setTimeout(() => {
-      setDownloading(false);
-      alert('Relatório PDF exportado com sucesso! Salvo em Downloads.');
-    }, 1500);
+    window.print();
   };
+
+  const nivelLabel = (score: number) => score >= 75 ? 'Nível Excelente' : score >= 50 ? 'Nível Elevado' : score >= 25 ? 'Nível Médio' : 'Nível Crítico';
+
+  const indexEntries: [string, number][] = [
+    ['Governança', indices.governance], ['Financeiro', indices.financial], ['Operacional', indices.operational],
+    ['Comercial', indices.commercial], ['Patrimonial', indices.patrimonial], ['Administrativo', indices.administrative],
+  ];
+  const lowestIndexLabel = indexEntries.reduce((lowest, entry) => entry[1] < lowest[1] ? entry : lowest, indexEntries[0])[0];
 
   return (
     <div className="space-y-6 animate-fade-in p-1">
@@ -48,10 +53,9 @@ export const ReportsModule: React.FC = () => {
           </button>
           <button
             onClick={handleDownload}
-            disabled={downloading}
-            className="px-3.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            className="px-3.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
           >
-            <Download size={14} /> {downloading ? 'Gerando PDF...' : 'Baixar PDF'}
+            <Download size={14} /> Baixar PDF
           </button>
         </div>
       </div>
@@ -121,9 +125,9 @@ export const ReportsModule: React.FC = () => {
                 Resumo Executivo da Operação
               </h3>
               <p>
-                Este documento apresenta a análise de conformidade de processos corporativos da propriedade rural **{farmFilter}**. 
-                O Índice de Gestão Rural (IGR) calculado situa-se em **{indices.overall}%**, refletindo uma maturidade de gestão considerada **média**. 
-                Recomenda-se urgência na definição do acordo de sucessão e protocolo de governança familiar, que atualmente possui a menor pontuação.
+                Este documento apresenta a análise de conformidade de processos corporativos da propriedade rural **{farmFilter}**.
+                O Índice de Gestão Rural (IGR) calculado situa-se em **{indices.overall}%**, refletindo uma maturidade de gestão considerada **{nivelLabel(indices.overall).replace('Nível ', '').toLowerCase()}**.
+                A área com menor pontuação atualmente é **{lowestIndexLabel}**, recomenda-se priorizar ações nela.
               </p>
               
               <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 space-y-2">
@@ -145,8 +149,8 @@ export const ReportsModule: React.FC = () => {
             <div className="space-y-4 text-xs leading-relaxed">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white">Relatório Consolidado de Custos e Faturamento</h3>
               <p>
-                Os resultados de caixa consolidados para o período indicam receitas brutas de R$ {financialTransactions.filter(t => t.type === 'receita').reduce((s,t)=>s+t.value, 0).toLocaleString('pt-BR')}.
-                O volume de custos operacionais variou de forma consistente com as metas estabelecidas, observando-se um ligeiro aumento nos gastos com combustíveis.
+                Os resultados de caixa consolidados para o período indicam receitas brutas de R$ {financialTransactions.filter(t => t.type === 'receita').reduce((s,t)=>s+t.value, 0).toLocaleString('pt-BR')}
+                {' '}e despesas totais de R$ {financialTransactions.filter(t => t.type === 'despesa').reduce((s,t)=>s+t.value, 0).toLocaleString('pt-BR')}, com base em {financialTransactions.length} lançamento(s) cadastrado(s).
               </p>
               <div className="overflow-x-auto pt-2">
                 <table className="w-full text-left text-2xs">
@@ -181,19 +185,19 @@ export const ReportsModule: React.FC = () => {
               <div className="space-y-2 pt-2">
                 <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800/40">
                   <span>Conformidade Societária e Governança:</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">{indices.governance}% (Nível Crítico)</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">{indices.governance}% ({nivelLabel(indices.governance)})</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800/40">
                   <span>Controles e Fluxo de Caixa Financeiro:</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">{indices.financial}% (Nível Médio)</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">{indices.financial}% ({nivelLabel(indices.financial)})</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800/40">
                   <span>Rendimento de Máquinas e Lavouras:</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">{indices.operational}% (Nível Elevado)</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">{indices.operational}% ({nivelLabel(indices.operational)})</span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800/40">
                   <span>Regularidade e Inventário do Patrimônio:</span>
-                  <span className="font-bold text-slate-700 dark:text-slate-300">{indices.patrimonial}% (Nível Excelente)</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-300">{indices.patrimonial}% ({nivelLabel(indices.patrimonial)})</span>
                 </div>
               </div>
             </div>

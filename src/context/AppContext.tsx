@@ -17,6 +17,7 @@ import type {
   DocumentRow,
   InvoiceRow,
   SefazSyncStateRow,
+  StrategicGoalRow,
 } from '../lib/database.types';
 
 // Interfaces
@@ -127,7 +128,7 @@ export interface Indicator {
   value: number;
   target: number;
   unit: string;
-  status: 'excelente' | 'bom' | 'alerta' | 'critico';
+  status: 'excelente' | 'bom' | 'alerta' | 'critico' | 'sem_dado';
 }
 
 export interface ActionPlanItem {
@@ -207,6 +208,15 @@ export interface AppDocument {
   status: string;
   expiryDate?: string;
   notes: string;
+}
+
+export interface StrategicGoal {
+  uuid: string;
+  title: string;
+  description: string;
+  category: string;
+  targetDate?: string;
+  progress: string;
 }
 
 // Nota fiscal emitida para um cliente: arquivo real (PDF/XML) no Supabase
@@ -336,6 +346,11 @@ interface AppContextType {
   addDocument: (d: Omit<AppDocument, 'uuid'>) => void;
   updateDocument: (uuid: string, data: Partial<AppDocument>) => void;
   removeDocument: (uuid: string) => void;
+
+  strategicGoals: StrategicGoal[];
+  addStrategicGoal: (g: Omit<StrategicGoal, 'uuid'>) => void;
+  updateStrategicGoal: (uuid: string, data: Partial<StrategicGoal>) => void;
+  removeStrategicGoal: (uuid: string) => void;
 
   invoices: Invoice[];
   addInvoice: (clientUuid: string, number: string, issueDate: string, value: number, file: File) => Promise<void>;
@@ -526,6 +541,17 @@ function documentFromRow(row: DocumentRow): AppDocument {
   };
 }
 
+function strategicGoalFromRow(row: StrategicGoalRow): StrategicGoal {
+  return {
+    uuid: row.id,
+    title: row.title,
+    description: row.description ?? '',
+    category: row.category ?? '',
+    targetDate: row.target_date ?? undefined,
+    progress: row.progress,
+  };
+}
+
 function invoiceFromRow(row: InvoiceRow): Invoice {
   return {
     uuid: row.id,
@@ -640,6 +666,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [clients, setClients] = useState<Client[]>([]);
   const [implementsList, setImplementsList] = useState<Implement[]>([]);
   const [documents, setDocuments] = useState<AppDocument[]>([]);
+  const [strategicGoals, setStrategicGoals] = useState<StrategicGoal[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [sefazSyncState, setSefazSyncState] = useState<SefazSyncState | null>(null);
   const [sefazCertStatus, setSefazCertStatus] = useState<SefazCertificateStatus | null>(null);
@@ -653,7 +680,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const [
         farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes,
         stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes,
-        suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes, sefazStateRes,
+        suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes, sefazStateRes, goalsRes,
       ] = await Promise.all([
         supabase.from('properties').select('*').order('created_at'),
         supabase.from('diagnosis_questions').select('*').order('id'),
@@ -672,11 +699,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supabase.from('documents').select('*').order('created_at'),
         supabase.from('invoices').select('*').order('created_at'),
         supabase.from('sefaz_sync_state').select('*').eq('id', true).maybeSingle(),
+        supabase.from('strategic_goals').select('*').order('created_at'),
       ]);
 
       if (cancelled) return;
 
-      const results = { farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes, stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes, suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes, sefazStateRes };
+      const results = { farmsRes, diagRes, txRes, assetsRes, fieldsRes, machinesRes, stockRes, purchasesRes, employeesRes, actionPlansRes, chatRes, suppliersRes, clientsRes, implementsRes, documentsRes, invoicesRes, sefazStateRes, goalsRes };
       for (const [label, res] of Object.entries(results)) {
         if (res.error) console.error(`Erro ao carregar "${label}" do Supabase:`, res.error);
       }
@@ -699,6 +727,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setDocuments((documentsRes.data ?? []).map(documentFromRow));
       setInvoices((invoicesRes.data ?? []).map(invoiceFromRow));
       if (sefazStateRes.data) setSefazSyncState(sefazSyncStateFromRow(sefazStateRes.data));
+      setStrategicGoals((goalsRes.data ?? []).map(strategicGoalFromRow));
 
       const loadedChat = (chatRes.data ?? []).map(chatMessageFromRow);
       if (loadedChat.length === 0) {
@@ -1164,6 +1193,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // Objetivos Estratégicos (OKR)
+  const addStrategicGoal = (g: Omit<StrategicGoal, 'uuid'>) => {
+    const row = { title: g.title, description: g.description, category: g.category, target_date: g.targetDate || null, progress: g.progress };
+    supabase.from('strategic_goals').insert(row).select().single().then(({ data, error }) => {
+      if (error || !data) { console.error('Erro ao criar objetivo estratégico:', error); return; }
+      setStrategicGoals(prev => [...prev, strategicGoalFromRow(data)]);
+    });
+  };
+
+  const updateStrategicGoal = (uuid: string, data: Partial<StrategicGoal>) => {
+    setStrategicGoals(prev => prev.map(g => g.uuid === uuid ? { ...g, ...data } : g));
+    const patch: Record<string, unknown> = {};
+    if (data.title !== undefined) patch.title = data.title;
+    if (data.description !== undefined) patch.description = data.description;
+    if (data.category !== undefined) patch.category = data.category;
+    if (data.targetDate !== undefined) patch.target_date = data.targetDate || null;
+    if (data.progress !== undefined) patch.progress = data.progress;
+    supabase.from('strategic_goals').update(patch).eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao atualizar objetivo estratégico:', error);
+    });
+  };
+
+  const removeStrategicGoal = (uuid: string) => {
+    setStrategicGoals(prev => prev.filter(g => g.uuid !== uuid));
+    supabase.from('strategic_goals').delete().eq('id', uuid).then(({ error }) => {
+      if (error) console.error('Erro ao excluir objetivo estratégico:', error);
+    });
+  };
+
   // Notas Fiscais (arquivo real no Supabase Storage, vinculado a um cliente)
   const addInvoice = async (clientUuid: string, number: string, issueDate: string, value: number, file: File) => {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -1350,51 +1408,77 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (error) console.error('Erro ao salvar mensagem do usuário:', error);
     });
 
-    // Resposta Baseada em NLP Mapeado aos dados reais da fazenda
+    // Respostas geradas a partir dos dados reais cadastrados (sem IA/LLM de
+    // verdade por trás — busca por palavra-chave — mas nunca inventa números).
+    // Quando não há dado suficiente cadastrado, o assistente diz isso
+    // explicitamente em vez de fabricar uma resposta.
     setTimeout(() => {
       let reply = "";
       let chartData: ChartDataPoint[] | null = null;
 
-      if (cleanMsg.includes('lucro') && (cleanMsg.includes('caiu') || cleanMsg.includes('queda') || cleanMsg.includes('reduziu'))) {
-        reply = "Analisando os lançamentos de fluxo de caixa e custos produtivos deste mês, a margem líquida caiu de 28% para 22%. Isso decorreu de três fatores específicos: \n\n" +
-          "1. **Aumento no Diesel:** O custo médio do combustível subiu 12% no período (R$ 34.500 adicionais).\n" +
-          "2. **Manutenção Incomum:** R$ 15.800 gastos corretivamente no John Deere 8370R.\n" +
-          "3. **Preço do Milho:** Vendas fechadas em R$ 52/saca contra uma meta orçada de R$ 58/saca.\n\n" +
-          "Recomendo revisar o planejamento de hedge cambial e avaliar compras de diesel em escala (atacado) para diluir custos.";
+      const totalReceitas = financialTransactions.filter(t => t.type === 'receita').reduce((s, t) => s + t.value, 0);
+      const totalDespesas = financialTransactions.filter(t => t.type === 'despesa').reduce((s, t) => s + t.value, 0);
+      const lucro = totalReceitas - totalDespesas;
+      const margem = totalReceitas > 0 ? Math.round((lucro / totalReceitas) * 100) : 0;
 
-        chartData = [
-          { name: 'Diesel', custo: 34500, orcado: 30000 },
-          { name: 'Manutenção', custo: 15800, orcado: 8000 },
-          { name: 'Salários', custo: 78000, orcado: 78000 },
-          { name: 'Insumos', custo: 272000, orcado: 260000 }
-        ];
+      if (cleanMsg.includes('lucro') && (cleanMsg.includes('caiu') || cleanMsg.includes('queda') || cleanMsg.includes('reduziu') || cleanMsg.includes('varia'))) {
+        if (financialTransactions.length === 0) {
+          reply = "Ainda não há lançamentos financeiros cadastrados para eu analisar o lucro. Cadastre receitas e despesas em **Fluxo de Caixa** para eu conseguir responder com precisão.";
+        } else {
+          reply = `Com base nos ${financialTransactions.length} lançamento(s) cadastrado(s): receita total de **R$ ${totalReceitas.toLocaleString('pt-BR')}**, despesa total de **R$ ${totalDespesas.toLocaleString('pt-BR')}**, resultando em lucro de **R$ ${lucro.toLocaleString('pt-BR')}** (margem de ${margem}%).\n\n` +
+            "Ainda não tenho um período anterior cadastrado para comparar a variação — para isso, mantenha o histórico de lançamentos por safra completo em Fluxo de Caixa.";
+        }
       } else if (cleanMsg.includes('cultura') || cleanMsg.includes('rentável') || cleanMsg.includes('rentabilidade') || cleanMsg.includes('lucrativa')) {
-        reply = "Com base nos dados produtivos colhidos na safra atual, a cultura do **Algodão** apresentou o maior retorno financeiro absoluto, enquanto a **Soja** manteve a maior estabilidade operacional.\n\n" +
-          "• **Algodão:** Margem de R$ 9.000/ha (Receita: R$ 16.500/ha | Custo: R$ 7.500/ha)\n" +
-          "• **Soja:** Margem de R$ 5.980/ha (Receita: R$ 9.855/ha | Custo: R$ 3.875/ha)\n" +
-          "• **Milho:** Margem de R$ 4.650/ha (Receita: R$ 8.850/ha | Custo: R$ 4.200/ha)\n\n" +
-          "Apesar do custo de produção do algodão ser 93% maior, sua lucratividade foi 50% superior à soja por hectare.";
+        const porCultura = new Map<string, { receita: number; custo: number; area: number }>();
+        fields.forEach(f => {
+          const e = porCultura.get(f.culture) ?? { receita: 0, custo: 0, area: 0 };
+          e.receita += f.revenueHa * f.area;
+          e.custo += f.productionCostHa * f.area;
+          e.area += f.area;
+          porCultura.set(f.culture, e);
+        });
+        const linhas = Array.from(porCultura.entries())
+          .filter(([, v]) => v.area > 0)
+          .map(([culture, v]) => ({ culture, margemHa: (v.receita - v.custo) / v.area, receita: v.receita, custo: v.custo }))
+          .sort((a, b) => b.margemHa - a.margemHa);
 
-        chartData = [
-          { name: 'Algodão', receita: 16500, custo: 7500, lucro: 9000 },
-          { name: 'Soja', receita: 9855, custo: 3875, lucro: 5980 },
-          { name: 'Milho', receita: 8850, custo: 4200, lucro: 4650 }
-        ];
+        if (linhas.length === 0) {
+          reply = "Ainda não há custo/receita por hectare cadastrados nos talhões. Preencha essas informações em **Produção e Safra** para eu conseguir comparar a rentabilidade entre culturas.";
+        } else {
+          reply = "Com base nos talhões cadastrados, a rentabilidade por hectare está assim:\n\n" +
+            linhas.map(l => `• **${l.culture}:** margem de R$ ${Math.round(l.margemHa).toLocaleString('pt-BR')}/ha`).join('\n');
+          chartData = linhas.map(l => ({ name: l.culture, receita: Math.round(l.receita), custo: Math.round(l.custo), lucro: Math.round(l.receita - l.custo) }));
+        }
       } else if (cleanMsg.includes('reduzir') || cleanMsg.includes('5%') || cleanMsg.includes('economizaria') || cleanMsg.includes('redução')) {
-        const totalCustos = financialTransactions
-          .filter(t => t.type === 'despesa')
-          .reduce((acc, t) => acc + t.value, 0);
-        const economia = totalCustos * 0.05;
-        const novoLucro = 1280000 - totalCustos + economia; // Mocks baseados no DRE
-
-        reply = `Uma redução de **5%** nos seus custos operacionais acumulados (atualmente R$ ${totalCustos.toLocaleString('pt-BR')}) representaria uma economia direta de **R$ ${economia.toLocaleString('pt-BR')}** líquidos para o seu caixa.\n\n` +
-          `Essa economia faria o lucro líquido geral da safra subir para **R$ ${novoLucro.toLocaleString('pt-BR')}**, elevando a margem líquida total em aproximadamente **1.8%**.\n\n` +
-          `Para atingir essa meta, sugiro focar no estoque (renegociação de prazos médios de fertilizantes) e otimização de combustível nas máquinas (telemetria de patinamento).`;
+        if (totalDespesas === 0) {
+          reply = "Ainda não há despesas cadastradas em Fluxo de Caixa para eu simular uma redução de custos.";
+        } else {
+          const economia = totalDespesas * 0.05;
+          const novoLucro = lucro + economia;
+          reply = `Uma redução de **5%** nas despesas cadastradas (atualmente R$ ${totalDespesas.toLocaleString('pt-BR')}) representaria uma economia de **R$ ${economia.toLocaleString('pt-BR')}**.\n\n` +
+            `O lucro passaria de R$ ${lucro.toLocaleString('pt-BR')} para **R$ ${novoLucro.toLocaleString('pt-BR')}**.`;
+        }
       } else if (cleanMsg.includes('estoque') || cleanMsg.includes('crítico') || cleanMsg.includes('insumo')) {
-        reply = "Identifiquei que o estoque de **Fungicida Fox Xpro** está crítico. A quantidade física é de **180 litros**, enquanto o limite mínimo de segurança definido é de **200 litros**.\n\n" +
-          "Já existe um pedido de compra pendente de aprovação (ID p1) de **400 litros** no valor de R$ 96.000 da AgroComercial Sorriso. A liberação desse pedido regularizará o estoque para 580 litros.";
+        const criticos = stock.filter(s => s.quantity < s.minQuantity);
+        if (stock.length === 0) {
+          reply = "Ainda não há itens de estoque cadastrados. Cadastre em **Estoque de Insumos** para eu poder monitorar níveis críticos.";
+        } else if (criticos.length === 0) {
+          reply = `Os ${stock.length} item(ns) de estoque cadastrados estão dentro do nível mínimo definido — nenhum crítico no momento.`;
+        } else {
+          reply = `Encontrei ${criticos.length} item(ns) de estoque abaixo do mínimo:\n\n` +
+            criticos.map(s => `• **${s.name}:** ${s.quantity} ${s.unit} (mínimo: ${s.minQuantity} ${s.unit})`).join('\n');
+        }
       } else {
-        reply = "Interessante pergunta estratégica. Analisando as métricas de Gea, vejo que sua liquidez geral está em 1.85 (saudável), a depreciação de maquinários consome R$ 38.000/mês e a produtividade de soja está 4% acima da média da região. Posso detalhar o fluxo de caixa, as notas do diagnóstico de governança ou projetar o EBITDA para você. O que prefere?";
+        const cadastros = [
+          financialTransactions.length ? `${financialTransactions.length} lançamento(s) financeiro(s)` : null,
+          fields.length ? `${fields.length} talhão(ões)` : null,
+          stock.length ? `${stock.length} item(ns) de estoque` : null,
+          machines.length ? `${machines.length} máquina(s)` : null,
+        ].filter(Boolean).join(', ');
+        reply = "Ainda não sou uma IA de verdade — respondo por palavras-chave a partir do que está cadastrado no sistema, sem inventar números.\n\n" +
+          (cadastros
+            ? `Hoje há ${cadastros} cadastrados. Posso responder sobre lucro/margem, rentabilidade por cultura, simulação de redução de custos e itens de estoque crítico.`
+            : "Ainda não há dados suficientes cadastrados no sistema. Cadastre lançamentos financeiros, talhões e estoque para eu conseguir responder com informações reais.");
       }
 
       const assistantMsg: ChatMessage = { id: crypto.randomUUID(), sender: 'assistant', content: reply, timestamp: new Date(), charts: chartData };
@@ -1517,12 +1601,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i6', name: 'ROA (Retorno s/ Ativo)', category: 'Financeiro', value: roiVal, target: 7.0, unit: '%', status: status(roiVal, 7) },
       { uuid: 'i7', name: 'Margem Líquida', category: 'Financeiro', value: margemVal, target: 25, unit: '%', status: status(margemVal, 25) },
       { uuid: 'i8', name: 'Grau de Endividamento', category: 'Financeiro', value: grauEndividamento, target: 45, unit: '%', status: status(grauEndividamento, 45, true) },
-      { uuid: 'i9', name: 'Giro de Caixa', category: 'Financeiro', value: 42, target: 30, unit: 'Dias', status: 'bom' },
+      { uuid: 'i9', name: 'Giro de Caixa', category: 'Financeiro', value: 0, target: 30, unit: 'Dias', status: 'sem_dado' },
       { uuid: 'i10', name: 'Margem Bruta', category: 'Financeiro', value: margemVal, target: 40, unit: '%', status: status(margemVal, 40) },
-      { uuid: 'i11', name: 'Cobertura de Juros', category: 'Financeiro', value: 3.4, target: 2.5, unit: 'x', status: 'bom' },
+      { uuid: 'i11', name: 'Cobertura de Juros', category: 'Financeiro', value: 0, target: 2.5, unit: 'x', status: 'sem_dado' },
       { uuid: 'i12', name: 'Margem de EBITDA', category: 'Financeiro', value: totalReceitas > 0 ? (ebitdaVal / totalReceitas) * 100 : 0, target: 30, unit: '%', status: status(totalReceitas > 0 ? (ebitdaVal / totalReceitas) * 100 : 0, 30) },
       { uuid: 'i13', name: 'Ponto de Equilíbrio Geral', category: 'Financeiro', value: totalDespesas, target: 750000, unit: 'R$', status: status(totalDespesas, 750000, true) },
-      { uuid: 'i14', name: 'Custos Fixos / Receita', category: 'Financeiro', value: 18, target: 20, unit: '%', status: 'excelente' },
+      { uuid: 'i14', name: 'Custos Fixos / Receita', category: 'Financeiro', value: 0, target: 20, unit: '%', status: 'sem_dado' },
       { uuid: 'i15', name: 'Custos Variáveis / Receita', category: 'Financeiro', value: totalReceitas > 0 ? (totalDespesas / totalReceitas) * 100 : 0, target: 50, unit: '%', status: status(totalReceitas > 0 ? (totalDespesas / totalReceitas) * 100 : 0, 50, true) },
 
       // Produção (15) — produtividade/custo/lucro por ha calculados a partir dos talhões (fields) reais;
@@ -1534,15 +1618,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i19', name: 'Custo de Produção Milho', category: 'Produção', value: custoProdMilho, target: 4100, unit: 'R$/ha', status: status(custoProdMilho, 4100, true) },
       { uuid: 'i20', name: 'Lucro Líquido por Hectare Soja', category: 'Produção', value: lucroHaSoja, target: 5500, unit: 'R$/ha', status: status(lucroHaSoja, 5500) },
       { uuid: 'i21', name: 'Lucro Líquido por Hectare Milho', category: 'Produção', value: lucroHaMilho, target: 4000, unit: 'R$/ha', status: status(lucroHaMilho, 4000) },
-      { uuid: 'i22', name: 'Eficiência de Semeadura (Velocidade)', category: 'Produção', value: 92, target: 95, unit: '%', status: 'bom' },
-      { uuid: 'i23', name: 'Perdas na Colheita (Soja)', category: 'Produção', value: 0.9, target: 1.2, unit: '%', status: 'excelente' },
-      { uuid: 'i24', name: 'Eficiência Pluviométrica Aproveitada', category: 'Produção', value: 85, target: 80, unit: '%', status: 'bom' },
-      { uuid: 'i25', name: 'Custo de Defensivos por ha', category: 'Produção', value: 780, target: 800, unit: 'R$', status: 'bom' },
-      { uuid: 'i26', name: 'Custo de Fertilizantes por ha', category: 'Produção', value: 1450, target: 1400, unit: 'R$', status: 'alerta' },
-      { uuid: 'i27', name: 'População de Plantas Efetiva (Soja)', category: 'Produção', value: 96, target: 98, unit: '%', status: 'bom' },
-      { uuid: 'i28', name: 'Custo de Sementes por ha', category: 'Produção', value: 450, target: 450, unit: 'R$', status: 'bom' },
-      { uuid: 'i29', name: 'Índice de Área Foliar Médio', category: 'Produção', value: 4.8, target: 5.0, unit: 'IAF', status: 'bom' },
-      { uuid: 'i30', name: 'Eficiência de Aplicação Defensivos', category: 'Produção', value: 88, target: 90, unit: '%', status: 'bom' },
+      { uuid: 'i22', name: 'Eficiência de Semeadura (Velocidade)', category: 'Produção', value: 0, target: 95, unit: '%', status: 'sem_dado' },
+      { uuid: 'i23', name: 'Perdas na Colheita (Soja)', category: 'Produção', value: 0, target: 1.2, unit: '%', status: 'sem_dado' },
+      { uuid: 'i24', name: 'Eficiência Pluviométrica Aproveitada', category: 'Produção', value: 0, target: 80, unit: '%', status: 'sem_dado' },
+      { uuid: 'i25', name: 'Custo de Defensivos por ha', category: 'Produção', value: 0, target: 800, unit: 'R$', status: 'sem_dado' },
+      { uuid: 'i26', name: 'Custo de Fertilizantes por ha', category: 'Produção', value: 0, target: 1400, unit: 'R$', status: 'sem_dado' },
+      { uuid: 'i27', name: 'População de Plantas Efetiva (Soja)', category: 'Produção', value: 0, target: 98, unit: '%', status: 'sem_dado' },
+      { uuid: 'i28', name: 'Custo de Sementes por ha', category: 'Produção', value: 0, target: 450, unit: 'R$', status: 'sem_dado' },
+      { uuid: 'i29', name: 'Índice de Área Foliar Médio', category: 'Produção', value: 0, target: 5.0, unit: 'IAF', status: 'sem_dado' },
+      { uuid: 'i30', name: 'Eficiência de Aplicação Defensivos', category: 'Produção', value: 0, target: 90, unit: '%', status: 'sem_dado' },
 
       // Máquinas (15) — disponibilidade, consumo, custo/hora e horas trabalhadas vêm da frota (machines) real;
       // os demais (telemetria, patinamento, pneus, ociosidade) não têm sensor/registro correspondente hoje.
@@ -1550,35 +1634,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i32', name: 'Consumo Médio Diesel JD 8370R', category: 'Máquinas', value: consumoJd ?? 25.0, target: 24.5, unit: 'L/h', status: consumoJd !== null ? status(consumoJd, 24.5, true) : 'alerta' },
       { uuid: 'i33', name: 'Consumo Médio Diesel Case 9250', category: 'Máquinas', value: consumoCase ?? 35.0, target: 36.0, unit: 'L/h', status: consumoCase !== null ? status(consumoCase, 36, true) : 'excelente' },
       { uuid: 'i34', name: 'Custo Médio de Manutenção / Hora', category: 'Máquinas', value: custoManutHora, target: 30.0, unit: 'R$/h', status: status(custoManutHora, 30, true) },
-      { uuid: 'i35', name: 'Eficiência de Telemetria (Cobertura)', category: 'Máquinas', value: 98, target: 95, unit: '%', status: 'excelente' },
-      { uuid: 'i36', name: 'Índice de Patinamento Médio', category: 'Máquinas', value: 8.5, target: 10.0, unit: '%', status: 'excelente' },
+      { uuid: 'i35', name: 'Eficiência de Telemetria (Cobertura)', category: 'Máquinas', value: 0, target: 95, unit: '%', status: 'sem_dado' },
+      { uuid: 'i36', name: 'Índice de Patinamento Médio', category: 'Máquinas', value: 0, target: 10.0, unit: '%', status: 'sem_dado' },
       { uuid: 'i37', name: 'Horas Trabalhadas Lote/Trator/Ano', category: 'Máquinas', value: horasTrabalhadasMedia, target: 500, unit: 'h', status: status(horasTrabalhadasMedia, 500) },
-      { uuid: 'i38', name: 'Manutenções Preventivas no Prazo', category: 'Máquinas', value: 96, target: 98, unit: '%', status: 'bom' },
-      { uuid: 'i39', name: 'Manutenções Corretivas Emergenciais', category: 'Máquinas', value: 4, target: 5, unit: '%', status: 'excelente' },
-      { uuid: 'i40', name: 'Custo de Pneus e Esteiras / h', category: 'Máquinas', value: 12.8, target: 15.0, unit: 'R$', status: 'excelente' },
-      { uuid: 'i41', name: 'Taxa de Ociosidade Tratores', category: 'Máquinas', value: 14, target: 15, unit: '%', status: 'bom' },
-      { uuid: 'i42', name: 'Horas em marcha lenta (ocioso)', category: 'Máquinas', value: 8.5, target: 8.0, unit: '%', status: 'alerta' },
-      { uuid: 'i43', name: 'Uso de capacidade útil de tração', category: 'Máquinas', value: 82, target: 85, unit: '%', status: 'bom' },
-      { uuid: 'i44', name: 'Custo Lubrificantes / Combustível', category: 'Máquinas', value: 6.2, target: 6.0, unit: '%', status: 'bom' },
-      { uuid: 'i45', name: 'Vida útil restante média frota', category: 'Máquinas', value: 62, target: 60, unit: '%', status: 'bom' },
+      { uuid: 'i38', name: 'Manutenções Preventivas no Prazo', category: 'Máquinas', value: 0, target: 98, unit: '%', status: 'sem_dado' },
+      { uuid: 'i39', name: 'Manutenções Corretivas Emergenciais', category: 'Máquinas', value: 0, target: 5, unit: '%', status: 'sem_dado' },
+      { uuid: 'i40', name: 'Custo de Pneus e Esteiras / h', category: 'Máquinas', value: 0, target: 15.0, unit: 'R$', status: 'sem_dado' },
+      { uuid: 'i41', name: 'Taxa de Ociosidade Tratores', category: 'Máquinas', value: 0, target: 15, unit: '%', status: 'sem_dado' },
+      { uuid: 'i42', name: 'Horas em marcha lenta (ocioso)', category: 'Máquinas', value: 0, target: 8.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i43', name: 'Uso de capacidade útil de tração', category: 'Máquinas', value: 0, target: 85, unit: '%', status: 'sem_dado' },
+      { uuid: 'i44', name: 'Custo Lubrificantes / Combustível', category: 'Máquinas', value: 0, target: 6.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i45', name: 'Vida útil restante média frota', category: 'Máquinas', value: 0, target: 60, unit: '%', status: 'sem_dado' },
 
       // Patrimônio (15) — valor patrimonial, depreciação, terra nua, imobilização e frota vêm de assets reais;
       // seguros, benfeitorias, matrículas e CAR não têm campo próprio no cadastro de ativos ainda.
-      { uuid: 'i46', name: 'Evolução Patrimonial Anual', category: 'Patrimônio', value: 14.5, target: 10.0, unit: '%', status: 'excelente' },
+      { uuid: 'i46', name: 'Evolução Patrimonial Anual', category: 'Patrimônio', value: 0, target: 10.0, unit: '%', status: 'sem_dado' },
       { uuid: 'i47', name: 'Patrimônio Líquido Ajustado', category: 'Patrimônio', value: ativoTotal, target: 25000000, unit: 'R$', status: status(ativoTotal, 25000000) },
       { uuid: 'i48', name: 'Depreciação Acumulada/Ano', category: 'Patrimônio', value: depreciacaoAnual, target: 350000, unit: 'R$', status: status(depreciacaoAnual, 350000, true) },
       { uuid: 'i49', name: 'Retorno s/ Patrimônio Líquido', category: 'Patrimônio', value: roiVal, target: 9.5, unit: '%', status: status(roiVal, 9.5) },
-      { uuid: 'i50', name: 'Liquidez Patrimonial', category: 'Patrimônio', value: 28, target: 25, unit: '%', status: 'bom' },
+      { uuid: 'i50', name: 'Liquidez Patrimonial', category: 'Patrimônio', value: 0, target: 25, unit: '%', status: 'sem_dado' },
       { uuid: 'i51', name: 'Valor de Terra Nua / ha', category: 'Patrimônio', value: valorTerraNuaHa, target: 26000, unit: 'R$', status: status(valorTerraNuaHa, 26000) },
       { uuid: 'i52', name: 'Índice de Imobilização de Capital', category: 'Patrimônio', value: imobilizacaoCapital, target: 80, unit: '%', status: status(imobilizacaoCapital, 80, true) },
-      { uuid: 'i53', name: 'Seguros / Valor Reposição Ativos', category: 'Patrimônio', value: 88, target: 95, unit: '%', status: 'bom' },
-      { uuid: 'i54', name: 'Manutenção de Benfeitorias / Ativo', category: 'Patrimônio', value: 1.8, target: 2.0, unit: '%', status: 'bom' },
-      { uuid: 'i55', name: 'Grau de regularização de Matrículas', category: 'Patrimônio', value: 100, target: 100, unit: '%', status: 'excelente' },
-      { uuid: 'i56', name: 'Passivo Ambiental CAR', category: 'Patrimônio', value: 0, target: 0, unit: 'ha', status: 'excelente' },
-      { uuid: 'i57', name: 'Aproveitamento de Área Útil', category: 'Patrimônio', value: 68, target: 70, unit: '%', status: 'bom' },
+      { uuid: 'i53', name: 'Seguros / Valor Reposição Ativos', category: 'Patrimônio', value: 0, target: 95, unit: '%', status: 'sem_dado' },
+      { uuid: 'i54', name: 'Manutenção de Benfeitorias / Ativo', category: 'Patrimônio', value: 0, target: 2.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i55', name: 'Grau de regularização de Matrículas', category: 'Patrimônio', value: 0, target: 100, unit: '%', status: 'sem_dado' },
+      { uuid: 'i56', name: 'Passivo Ambiental CAR', category: 'Patrimônio', value: 0, target: 0, unit: 'ha', status: 'sem_dado' },
+      { uuid: 'i57', name: 'Aproveitamento de Área Útil', category: 'Patrimônio', value: 0, target: 70, unit: '%', status: 'sem_dado' },
       { uuid: 'i58', name: 'Idade média frota de máquinas', category: 'Patrimônio', value: idadeMediaFrotaAssets, target: 5.0, unit: 'Anos', status: status(idadeMediaFrotaAssets, 5, true) },
       { uuid: 'i59', name: 'Valor Residual de Máquinas', category: 'Patrimônio', value: valorResidualMaquinas, target: 40, unit: '%', status: status(valorResidualMaquinas, 40) },
-      { uuid: 'i60', name: 'Custo de oportunidade da terra', category: 'Patrimônio', value: 3.5, target: 4.0, unit: '%', status: 'bom' },
+      { uuid: 'i60', name: 'Custo de oportunidade da terra', category: 'Patrimônio', value: 0, target: 4.0, unit: '%', status: 'sem_dado' },
 
       // Pessoas (14) — receita/lucro por colaborador e horas de treinamento vêm de employees reais;
       // turnover, clima organizacional, absenteísmo e uso de EPI dependem de pesquisas/registros de RH
@@ -1586,48 +1670,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       { uuid: 'i61', name: 'Receita por Colaborador/Ano', category: 'Pessoas', value: receitaPorColaborador, target: 150000, unit: 'R$', status: status(receitaPorColaborador, 150000) },
       { uuid: 'i62', name: 'Lucro por Colaborador/Ano', category: 'Pessoas', value: lucroPorColaborador, target: 40000, unit: 'R$', status: status(lucroPorColaborador, 40000) },
       { uuid: 'i63', name: 'Horas de Treinamento/Colaborador', category: 'Pessoas', value: horasTreinamentoMedia, target: 30, unit: 'h', status: status(horasTreinamentoMedia, 30) },
-      { uuid: 'i64', name: 'Índice de Acidentes de Trabalho', category: 'Pessoas', value: 0, target: 0, unit: 'casos', status: 'excelente' },
-      { uuid: 'i65', name: 'Turnover (Rotatividade Anual)', category: 'Pessoas', value: 8.5, target: 10.0, unit: '%', status: 'excelente' },
-      { uuid: 'i66', name: 'Clima Organizacional (Satisfação)', category: 'Pessoas', value: 84, target: 80, unit: '%', status: 'bom' },
-      { uuid: 'i67', name: 'Absenteísmo Médio', category: 'Pessoas', value: 1.4, target: 2.0, unit: '%', status: 'excelente' },
-      { uuid: 'i68', name: 'Horas Extras / Hora Normal', category: 'Pessoas', value: 6.8, target: 5.0, unit: '%', status: 'alerta' },
-      { uuid: 'i69', name: 'Eficiência de Processamento de Folha', category: 'Pessoas', value: 100, target: 100, unit: '%', status: 'excelente' },
-      { uuid: 'i70', name: 'Investimento em Treinamento/Receita', category: 'Pessoas', value: 0.8, target: 1.0, unit: '%', status: 'bom' },
-      { uuid: 'i71', name: 'Reclamações Trabalhistas', category: 'Pessoas', value: 0, target: 0, unit: 'un', status: 'excelente' },
-      { uuid: 'i72', name: 'Idade média da força de trabalho', category: 'Pessoas', value: 36, target: 40, unit: 'Anos', status: 'bom' },
-      { uuid: 'i73', name: 'Uso efetivo de EPIs', category: 'Pessoas', value: 100, target: 100, unit: '%', status: 'excelente' },
-      { uuid: 'i74', name: 'Envolvimento familiar na gestão', category: 'Pessoas', value: 3, target: 4, unit: 'Pessoas', status: 'bom' },
+      { uuid: 'i64', name: 'Índice de Acidentes de Trabalho', category: 'Pessoas', value: 0, target: 0, unit: 'casos', status: 'sem_dado' },
+      { uuid: 'i65', name: 'Turnover (Rotatividade Anual)', category: 'Pessoas', value: 0, target: 10.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i66', name: 'Clima Organizacional (Satisfação)', category: 'Pessoas', value: 0, target: 80, unit: '%', status: 'sem_dado' },
+      { uuid: 'i67', name: 'Absenteísmo Médio', category: 'Pessoas', value: 0, target: 2.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i68', name: 'Horas Extras / Hora Normal', category: 'Pessoas', value: 0, target: 5.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i69', name: 'Eficiência de Processamento de Folha', category: 'Pessoas', value: 0, target: 100, unit: '%', status: 'sem_dado' },
+      { uuid: 'i70', name: 'Investimento em Treinamento/Receita', category: 'Pessoas', value: 0, target: 1.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i71', name: 'Reclamações Trabalhistas', category: 'Pessoas', value: 0, target: 0, unit: 'un', status: 'sem_dado' },
+      { uuid: 'i72', name: 'Idade média da força de trabalho', category: 'Pessoas', value: 0, target: 40, unit: 'Anos', status: 'sem_dado' },
+      { uuid: 'i73', name: 'Uso efetivo de EPIs', category: 'Pessoas', value: 0, target: 100, unit: '%', status: 'sem_dado' },
+      { uuid: 'i74', name: 'Envolvimento familiar na gestão', category: 'Pessoas', value: 0, target: 4, unit: 'Pessoas', status: 'sem_dado' },
 
       // Compras (14) — concentração em fornecedores calculada das compras reais; prazos, lead time,
       // número de cotações e reclamações de qualidade não são campos hoje capturados no pedido de compra.
-      { uuid: 'i75', name: 'Prazo Médio de Pagamento', category: 'Compras', value: 75, target: 60, unit: 'Dias', status: 'excelente' },
-      { uuid: 'i76', name: 'Saving (Economia Obtida)', category: 'Compras', value: 6.8, target: 5.0, unit: '%', status: 'excelente' },
-      { uuid: 'i77', name: 'Lead Time Médio de Entrega', category: 'Compras', value: 12, target: 10, unit: 'Dias', status: 'alerta' },
-      { uuid: 'i78', name: 'Pedidos sem Divergência (OTIF)', category: 'Compras', value: 94.2, target: 95.0, unit: '%', status: 'bom' },
-      { uuid: 'i79', name: 'Fornecedores Homologados / Ativos', category: 'Compras', value: 88, target: 90, unit: '%', status: 'bom' },
-      { uuid: 'i80', name: 'Compras Urgentes (Não Planejadas)', category: 'Compras', value: 4.8, target: 5.0, unit: '%', status: 'excelente' },
+      { uuid: 'i75', name: 'Prazo Médio de Pagamento', category: 'Compras', value: 0, target: 60, unit: 'Dias', status: 'sem_dado' },
+      { uuid: 'i76', name: 'Saving (Economia Obtida)', category: 'Compras', value: 0, target: 5.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i77', name: 'Lead Time Médio de Entrega', category: 'Compras', value: 0, target: 10, unit: 'Dias', status: 'sem_dado' },
+      { uuid: 'i78', name: 'Pedidos sem Divergência (OTIF)', category: 'Compras', value: 0, target: 95.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i79', name: 'Fornecedores Homologados / Ativos', category: 'Compras', value: 0, target: 90, unit: '%', status: 'sem_dado' },
+      { uuid: 'i80', name: 'Compras Urgentes (Não Planejadas)', category: 'Compras', value: 0, target: 5.0, unit: '%', status: 'sem_dado' },
       { uuid: 'i81', name: 'Concentração em Fornecedores Top 3', category: 'Compras', value: concentracaoTop3, target: 50, unit: '%', status: status(concentracaoTop3, 50, true) },
-      { uuid: 'i82', name: 'Número médio de cotações / pedido', category: 'Compras', value: 3.4, target: 3.0, unit: 'x', status: 'excelente' },
-      { uuid: 'i83', name: 'Reclamações de qualidade insumos', category: 'Compras', value: 1, target: 2, unit: 'un', status: 'excelente' },
-      { uuid: 'i84', name: 'Custo de frete / valor de compras', category: 'Compras', value: 4.5, target: 4.0, unit: '%', status: 'alerta' },
-      { uuid: 'i85', name: 'Cumprimento de acordos de Barter', category: 'Compras', value: 100, target: 100, unit: '%', status: 'excelente' },
-      { uuid: 'i86', name: 'Descontos por pagamento antecipado', category: 'Compras', value: 3.2, target: 2.5, unit: '%', status: 'bom' },
-      { uuid: 'i87', name: 'Avaliação média de Fornecedores', category: 'Compras', value: 8.8, target: 8.5, unit: 'Nota', status: 'excelente' },
-      { uuid: 'i88', name: 'Devoluções de mercadorias', category: 'Compras', value: 0.5, target: 1.0, unit: '%', status: 'excelente' },
+      { uuid: 'i82', name: 'Número médio de cotações / pedido', category: 'Compras', value: 0, target: 3.0, unit: 'x', status: 'sem_dado' },
+      { uuid: 'i83', name: 'Reclamações de qualidade insumos', category: 'Compras', value: 0, target: 2, unit: 'un', status: 'sem_dado' },
+      { uuid: 'i84', name: 'Custo de frete / valor de compras', category: 'Compras', value: 0, target: 4.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i85', name: 'Cumprimento de acordos de Barter', category: 'Compras', value: 0, target: 100, unit: '%', status: 'sem_dado' },
+      { uuid: 'i86', name: 'Descontos por pagamento antecipado', category: 'Compras', value: 0, target: 2.5, unit: '%', status: 'sem_dado' },
+      { uuid: 'i87', name: 'Avaliação média de Fornecedores', category: 'Compras', value: 0, target: 8.5, unit: 'Nota', status: 'sem_dado' },
+      { uuid: 'i88', name: 'Devoluções de mercadorias', category: 'Compras', value: 0, target: 1.0, unit: '%', status: 'sem_dado' },
 
       // Estoque (13) — nível baixo, vencimento e capital empatado vêm do estoque (stock) real; giro, acurácia
       // de inventário, perdas e tempo de reposição exigiriam histórico de movimentação que não é registrado.
-      { uuid: 'i89', name: 'Giro de Estoque Anual', category: 'Estoque', value: 4.2, target: 3.5, unit: 'Giros', status: 'excelente' },
-      { uuid: 'i90', name: 'Cobertura de Estoque (Segurança)', category: 'Estoque', value: 45, target: 30, unit: 'Dias', status: 'excelente' },
-      { uuid: 'i91', name: 'Acurácia de Inventário Físico', category: 'Estoque', value: 99.4, target: 99.0, unit: '%', status: 'excelente' },
-      { uuid: 'i92', name: 'Perdas por Vencimento/Dano', category: 'Estoque', value: 0.2, target: 0.5, unit: '%', status: 'excelente' },
-      { uuid: 'i93', name: 'Custo de Armazenamento / Estoque', category: 'Estoque', value: 3.8, target: 4.0, unit: '%', status: 'bom' },
-      { uuid: 'i94', name: 'Produtos sem movimentação > 180 d', category: 'Estoque', value: 2.1, target: 2.0, unit: '%', status: 'bom' },
-      { uuid: 'i95', name: 'Rastreabilidade de Lotes Aplicados', category: 'Estoque', value: 100, target: 100, unit: '%', status: 'excelente' },
-      { uuid: 'i96', name: 'Tempo médio de reposição estoque', category: 'Estoque', value: 8.5, target: 7.0, unit: 'Dias', status: 'alerta' },
+      { uuid: 'i89', name: 'Giro de Estoque Anual', category: 'Estoque', value: 0, target: 3.5, unit: 'Giros', status: 'sem_dado' },
+      { uuid: 'i90', name: 'Cobertura de Estoque (Segurança)', category: 'Estoque', value: 0, target: 30, unit: 'Dias', status: 'sem_dado' },
+      { uuid: 'i91', name: 'Acurácia de Inventário Físico', category: 'Estoque', value: 0, target: 99.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i92', name: 'Perdas por Vencimento/Dano', category: 'Estoque', value: 0, target: 0.5, unit: '%', status: 'sem_dado' },
+      { uuid: 'i93', name: 'Custo de Armazenamento / Estoque', category: 'Estoque', value: 0, target: 4.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i94', name: 'Produtos sem movimentação > 180 d', category: 'Estoque', value: 0, target: 2.0, unit: '%', status: 'sem_dado' },
+      { uuid: 'i95', name: 'Rastreabilidade de Lotes Aplicados', category: 'Estoque', value: 0, target: 100, unit: '%', status: 'sem_dado' },
+      { uuid: 'i96', name: 'Tempo médio de reposição estoque', category: 'Estoque', value: 0, target: 7.0, unit: 'Dias', status: 'sem_dado' },
       { uuid: 'i97', name: 'Percentual de itens com estoque baixo', category: 'Estoque', value: itensEstoqueBaixoPct, target: 5.0, unit: '%', status: status(itensEstoqueBaixoPct, 5, true) },
-      { uuid: 'i98', name: 'Área ocupada útil do armazém', category: 'Estoque', value: 72, target: 80, unit: '%', status: 'bom' },
-      { uuid: 'i99', name: 'Limpeza e Organização (5S Audit)', category: 'Estoque', value: 92, target: 90, unit: '%', status: 'excelente' },
+      { uuid: 'i98', name: 'Área ocupada útil do armazém', category: 'Estoque', value: 0, target: 80, unit: '%', status: 'sem_dado' },
+      { uuid: 'i99', name: 'Limpeza e Organização (5S Audit)', category: 'Estoque', value: 0, target: 90, unit: '%', status: 'sem_dado' },
       { uuid: 'i100', name: 'Itens com vencimento < 30 dias', category: 'Estoque', value: itensVencimento30d, target: 0, unit: 'un', status: status(itensVencimento30d, 0, true) },
       { uuid: 'i101', name: 'Custo de capital empatado em estoque', category: 'Estoque', value: estoqueTotal, target: 35000, unit: 'R$', status: status(estoqueTotal, 35000, true) }
     ];
@@ -1674,6 +1758,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addImplement, updateImplement, removeImplement,
       documents,
       addDocument, updateDocument, removeDocument,
+      strategicGoals,
+      addStrategicGoal, updateStrategicGoal, removeStrategicGoal,
       invoices,
       addInvoice, removeInvoice, getInvoiceDownloadUrl, linkInvoiceToClient,
       sefazSyncState, syncSefazInvoices,
